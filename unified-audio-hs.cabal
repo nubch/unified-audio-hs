@@ -78,6 +78,7 @@ library
     -- Base language which the package is written in.
     default-language: Haskell2010
 
+
 executable unified-audio-hs
     -- Import common warning flags.
     import:           warnings
@@ -101,6 +102,10 @@ executable unified-audio-hs
 
     -- Base language which the package is written in.
     default-language: Haskell2010
+
+    extra-lib-dirs:    /home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64
+    extra-libraries:   fmod
+    ghc-options:       -optl-Wl,-rpath=/home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64
 
 test-suite unified-audio-hs-test
     -- Import common warning flags.
