@@ -59,7 +59,7 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  MyLib
+    exposed-modules:  MyLib, Audio.Interface, Audio.SDL
 
     -- Modules included in this library but not exported.
     -- other-modules:
@@ -68,7 +68,9 @@ library
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.18.3.0
+    build-depends:    base ^>=4.18.3.0,
+                      sdl2-mixer,
+                      sdl2
 
     -- Directories containing source files.
     hs-source-dirs:   src
