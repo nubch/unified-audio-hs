@@ -1,4 +1,4 @@
-module Audio.Backend.SDL
+module Audio.SDL
   ( backendSDL
   )
 where
