@@ -15,4 +15,3 @@ main = alloca $ \pSystem -> do
   let fmod_INIT_NORMAL = 0x00000000 :: CInt
   result2 <- c_FMOD_System_Init system 512 fmod_INIT_NORMAL nullPtr
   print result2
-
