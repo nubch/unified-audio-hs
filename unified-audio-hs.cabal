@@ -59,7 +59,7 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  Audio.Interface, Audio.SDL, Audio.Fmod
+    exposed-modules:  Audio.Interface, Audio.SDL
 
     -- Modules included in this library but not exported.
     -- other-modules:

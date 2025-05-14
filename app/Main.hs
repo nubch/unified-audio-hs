@@ -1,8 +1,14 @@
 module Main where
 
-import qualified MyLib (someFunc)
+import Audio.SDL
+import Control.Concurrent (threadDelay)
+import Audio.Interface (AudioBackend(initAudio, playSound, loadSound, stopSound))
 
 main :: IO ()
 main = do
-  putStrLn "Hello, Haskell!"
-  MyLib.someFunc
+    let backend = backendSDL
+    initAudio backend
+    sound   <- loadSound backend "example.wav" 
+    channel <- playSound backend sound
+    threadDelay (2 * 1000000)
+    stopSound backend channel
