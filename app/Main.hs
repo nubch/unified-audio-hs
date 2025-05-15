@@ -8,7 +8,8 @@ import Foreign.C.Types
 
 main :: IO ()
 main = alloca $ \pSystem -> do
-  result1 <- c_FMOD_System_Create pSystem
+  let fmodVersion = 0x00020221 :: CUInt
+  result1 <- c_FMOD_System_Create pSystem fmodVersion
   print result1
 
   system <- peek pSystem
