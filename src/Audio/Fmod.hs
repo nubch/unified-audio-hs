@@ -2,23 +2,16 @@
 
 module Audio.Fmod (backendFmod) where
 
-import Foreign
-import Foreign.C.Types
-import Control.Monad
-import Foreign.C.String
-import Audio.Interface (AudioBackend)
+import Foreign ( Ptr, alloca, nullPtr, Storable(peek) )
+import Foreign.C.Types ( CInt(..), CUInt(..) )
+import Control.Monad ( when )
+import Foreign.C.String ( withCString, CString )
+import Audio.Interface ( AudioBackend, AudioBackend(..) )
 
-import Audio.SDL
-
-import Audio.Interface
-    ( AudioBackend(..) )
-
--- Abstract pointer to the FMOD_System
 data FMODSystem
 data FMODSound
 data FMODChannel
 
--- === Handle aliases ===
 type SystemHandle = Ptr FMODSystem
 type SoundHandle = Ptr FMODSound
 type PlayingHandle = Ptr FMODChannel

@@ -1,15 +1,15 @@
 module Main where
 
-import Control.Concurrent (threadDelay)
 import Audio.Interface (AudioBackend(initAudio, playSound, loadSound, stopSound))
-import Audio.Fmod (backendFmod)
 import Audio.SDL (backendSDL)
+import Audio.Fmod (backendFmod)
 
 main :: IO ()
 main = do
-  let backend = backendFmod
-  sys <- initAudio backend
-  sound <- loadSound backend sys "example.wav"
+--let backend = backendFmod
+  let backend = backendSDL
+  sys     <- initAudio backend
+  sound   <- loadSound backend sys "flim.mp3"
   playing <- playSound backend sys sound
-  _ <- getLine
+  _       <- getLine
   stopSound backend sys playing
