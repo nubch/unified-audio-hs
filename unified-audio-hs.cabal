@@ -57,14 +57,14 @@ common warnings
 library core
     import:           warnings
 
-    exposed-modules:  Audio.Interface
+    exposed-modules:  Interface
 
     -- other-modules:
 
     build-depends:    base ^>=4.18.3.0,
 
     -- Directories containing source files.
-    hs-source-dirs:   src
+    hs-source-dirs:   src-core/
 
     -- Base language which the package is written in.
     default-language: Haskell2010
@@ -73,7 +73,7 @@ library core
 library sdl-impl
     import:           warnings
 
-    exposed-modules:  Audio.SDL.SDL
+    exposed-modules:  SDL.SDL
 
     -- other-modules:
 
@@ -83,7 +83,7 @@ library sdl-impl
                       sdl2-mixer
 
     -- Directories containing source files.
-    hs-source-dirs:   src
+    hs-source-dirs:   src-impl/
 
     -- Base language which the package is written in.
     default-language: Haskell2010
@@ -91,16 +91,17 @@ library sdl-impl
 library fmod-impl
     import:           warnings
 
-    exposed-modules:  Audio.Fmod.Fmod
+    exposed-modules:  Fmod.Fmod
 
     build-depends:    base, 
                       unified-audio-hs:core
 
     -- Directories containing source files.
-    hs-source-dirs:   src
+    hs-source-dirs:   src-impl/
 
     -- Base language which the package is written in.
     default-language: Haskell2010
+
 
 executable unified-audio-hs
     -- Import common warning flags.
