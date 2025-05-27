@@ -1,4 +1,4 @@
-module Audio.Interface
+module Interface
   ( AudioBackend(..)
   ) where
 

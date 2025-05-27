@@ -1,9 +1,9 @@
-module Audio.SDL
+module SDL.SDL
   ( backendSDL, playSDL, loadSDL, stopSDL
   )
 where
 
-import Audio.Interface
+import Interface
     ( AudioBackend(..) )
 import qualified SDL
 import qualified SDL.Mixer as Mix

@@ -1,12 +1,12 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 
-module Audio.Fmod (backendFmod) where
+module Fmod.Fmod (backendFmod) where
 
 import Foreign ( Ptr, alloca, nullPtr, Storable(peek) )
 import Foreign.C.Types ( CInt(..), CUInt(..) )
 import Control.Monad ( when )
 import Foreign.C.String ( withCString, CString )
-import Audio.Interface ( AudioBackend, AudioBackend(..) )
+import Interface ( AudioBackend, AudioBackend(..) )
 
 data FMODSystem
 data FMODSound

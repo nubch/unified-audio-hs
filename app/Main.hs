@@ -1,13 +1,13 @@
 module Main where
 
-import Audio.Interface (AudioBackend(initAudio, playSound, loadSound, stopSound))
-import Audio.SDL (backendSDL)
-import Audio.Fmod (backendFmod)
+import Interface (AudioBackend(initAudio, playSound, loadSound, stopSound))
+import SDL.SDL (backendSDL)
+import Fmod.Fmod (backendFmod)
 
 main :: IO ()
 main = do
---let backend = backendFmod
-  let backend = backendSDL
+  let backend = backendFmod
+--let backend = backendSDL
   sys     <- initAudio backend
   sound   <- loadSound backend sys "flim.mp3"
   playing <- playSound backend sys sound

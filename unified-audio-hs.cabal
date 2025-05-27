@@ -54,23 +54,14 @@ extra-doc-files:    CHANGELOG.md
 common warnings
     ghc-options: -Wall
 
-library
-    -- Import common warning flags.
+library core
     import:           warnings
 
-    -- Modules exported by the library.
-    exposed-modules:  Audio.Interface, Audio.SDL, Audio.Fmod
+    exposed-modules:  Audio.Interface
 
-    -- Modules included in this library but not exported.
     -- other-modules:
 
-    -- LANGUAGE extensions used by modules in this package.
-    -- other-extensions:
-
-    -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0,
-                      sdl2-mixer,
-                      sdl2
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -78,6 +69,38 @@ library
     -- Base language which the package is written in.
     default-language: Haskell2010
 
+
+library sdl-impl
+    import:           warnings
+
+    exposed-modules:  Audio.SDL.SDL
+
+    -- other-modules:
+
+    build-depends:    base,
+                      unified-audio-hs:core,
+                      sdl2,
+                      sdl2-mixer
+
+    -- Directories containing source files.
+    hs-source-dirs:   src
+
+    -- Base language which the package is written in.
+    default-language: Haskell2010
+
+library fmod-impl
+    import:           warnings
+
+    exposed-modules:  Audio.Fmod.Fmod
+
+    build-depends:    base, 
+                      unified-audio-hs:core
+
+    -- Directories containing source files.
+    hs-source-dirs:   src
+
+    -- Base language which the package is written in.
+    default-language: Haskell2010
 
 executable unified-audio-hs
     -- Import common warning flags.
@@ -94,8 +117,10 @@ executable unified-audio-hs
 
     -- Other library packages from which modules are imported.
     build-depends:
-        base ^>=4.18.3.0,
-        unified-audio-hs
+        base,
+        unified-audio-hs:core,
+        unified-audio-hs:sdl-impl,
+        unified-audio-hs:fmod-impl,
 
     -- Directories containing source files.
     hs-source-dirs:   app
