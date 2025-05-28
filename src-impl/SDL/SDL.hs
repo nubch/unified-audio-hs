@@ -4,7 +4,7 @@ module SDL.SDL
 where
 
 import Interface
-    ( AudioBackend(..) )
+    ( AudioEffect(..), AudioBackend(..))
 import qualified SDL
 import qualified SDL.Mixer as Mix
 
@@ -16,6 +16,7 @@ initSDL :: IO SystemHandle
 initSDL = do
   SDL.initialize [SDL.InitAudio]
   Mix.openAudio Mix.defaultAudio 4096
+  putStrLn "SDL Init completed."
   return ()
 
 loadSDL :: SystemHandle -> FilePath -> IO SoundHandle
@@ -30,10 +31,10 @@ stopSDL :: SystemHandle -> PlayingHandle -> IO ()
 stopSDL _ channel = do
   Mix.halt channel
 
-backendSDL :: AudioBackend SystemHandle SoundHandle PlayingHandle
+backendSDL :: AudioBackend
 backendSDL = AudioBackend {
-    initAudio = initSDL,
-    loadSound = loadSDL,
-    playSound = playSDL,
-    stopSound = stopSDL
+    initAudioB = initSDL,
+    loadSoundB = loadSDL,
+    playSoundB = playSDL,
+    stopSoundB = stopSDL
 }
