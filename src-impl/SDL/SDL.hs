@@ -1,12 +1,17 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE FlexibleContexts #-}
 module SDL.SDL
-  ( backendSDL, playSDL, loadSDL, stopSDL
-  )
+  ( runAudio,
+    playSound,
+    stopSound )
 where
 
 import Interface
-    ( AudioEffect(..), AudioBackend(..))
 import qualified SDL
 import qualified SDL.Mixer as Mix
+import Effectful
+import Effectful.Dispatch.Static
 
 type SystemHandle = ()
 type SoundHandle = Mix.Chunk
@@ -19,22 +24,37 @@ initSDL = do
   putStrLn "SDL Init completed."
   return ()
 
-loadSDL :: SystemHandle -> FilePath -> IO SoundHandle
-loadSDL _ fp = do
+loadSDL :: FilePath -> IO SoundHandle
+loadSDL fp = do
   Mix.load fp
 
-playSDL :: SystemHandle -> SoundHandle -> IO PlayingHandle
-playSDL _ chunk = do
+playSDL :: FilePath -> IO PlayingHandle
+playSDL fp = do
+  chunk <- loadSDL fp
   Mix.playOn 1 Mix.Once chunk
 
-stopSDL :: SystemHandle -> PlayingHandle -> IO ()
-stopSDL _ channel = do
+stopSDL :: PlayingHandle -> IO ()
+stopSDL channel = do
   Mix.halt channel
 
-backendSDL :: AudioBackend
-backendSDL = AudioBackend {
-    initAudioB = initSDL,
-    loadSoundB = loadSDL,
+makeBackendSDL :: AudioBackend PlayingHandle
+makeBackendSDL = AudioBackend { 
     playSoundB = playSDL,
     stopSoundB = stopSDL
 }
+
+playSound :: AudioEffect PlayingHandle :> es => FilePath -> Eff es PlayingHandle
+playSound fp = do
+  AudioRep (AudioBackend play _) <- getStaticRep
+  unsafeEff_ $ play fp
+
+stopSound :: AudioEffect PlayingHandle :> es => PlayingHandle ->  Eff es ()
+stopSound playing = do
+  AudioRep (AudioBackend _ stop) <- getStaticRep
+  unsafeEff_ $ stop playing
+
+runAudio :: IOE :> es => Eff (AudioEffect PlayingHandle : es) a -> Eff es a
+runAudio eff = do
+  unsafeEff_ initSDL
+  evalStaticRep (AudioRep makeBackendSDL) eff
+
