@@ -41,21 +41,26 @@ stopSDL :: PlayingHandle -> IO ()
 stopSDL channel = do
   Mix.halt channel
 
+setVolumeSDL :: Int -> PlayingHandle -> IO ()
+setVolumeSDL vol playing = do 
+  Mix.setVolume vol playing
+
 makeBackendSDL :: AudioBackend PlayingHandle
 makeBackendSDL =
   AudioBackend
     { playSoundB = playSDL,
-      stopSoundB = stopSDL
+      stopSoundB = stopSDL,
+      setVolumeB = setVolumeSDL
     }
 
 playSound :: (AudioEffect PlayingHandle :> es) => FilePath -> Eff es PlayingHandle
 playSound fp = do
-  AudioRep (AudioBackend play _) <- getStaticRep
+  AudioRep (AudioBackend play _ _) <- getStaticRep
   unsafeEff_ $ play fp
 
 stopSound :: (AudioEffect PlayingHandle :> es) => PlayingHandle -> Eff es ()
 stopSound playing = do
-  AudioRep (AudioBackend _ stop) <- getStaticRep
+  AudioRep (AudioBackend _ stop _ ) <- getStaticRep
   unsafeEff_ $ stop playing
 
 runAudio :: (IOE :> es) => Eff (AudioEffect PlayingHandle : es) a -> Eff es a

@@ -22,5 +22,6 @@ newtype instance StaticRep (AudioEffect playing) = AudioRep (AudioBackend playin
 data AudioBackend playing = AudioBackend
   { 
     playSoundB :: FilePath -> IO playing,
-    stopSoundB :: playing -> IO ()
+    stopSoundB :: playing -> IO (),
+    setVolumeB :: Int -> playing -> IO ()
   }
