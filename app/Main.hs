@@ -6,7 +6,7 @@ import Interface
 import Control.Concurrent (threadDelay)
 --import Mock
 import SDL.SDL
---import Fmod.Fmod (backendFmod)
+--import Fmod.Fmod
 
 main :: IO ()
 main = runEff $ runAudio (do

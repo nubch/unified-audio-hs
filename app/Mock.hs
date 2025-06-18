@@ -3,7 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Mock
-  ( runMockAudio,
+  ( runAudio,
     playSound
   ) where
 
@@ -37,5 +37,5 @@ mockBackend =
     }
 
 -- Effekt-Runner
-runMockAudio :: IOE :> es => Eff (AudioEffect MockPlaying : es) a -> Eff es a
-runMockAudio = evalStaticRep (AudioRep mockBackend)
+runAudio :: IOE :> es => Eff (AudioEffect MockPlaying : es) a -> Eff es a
+runAudio = evalStaticRep (AudioRep mockBackend)
