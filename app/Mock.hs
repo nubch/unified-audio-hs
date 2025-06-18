@@ -1,30 +1,38 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Mock
   ( runAudio,
-    playSound
-  ) where
+    playSound,
+    stopSound,
+  )
+where
 
-import Interface
-import Effectful
+import Effectful (Eff, IOE, type (:>))
 import Effectful.Dispatch.Static
+  ( evalStaticRep,
+    getStaticRep,
+    unsafeEff_,
+  )
+import Interface
+  ( AudioBackend (..),
+    AudioEffect,
+    StaticRep (AudioRep),
+  )
 
--- Mock SoundHandle
 newtype MockPlaying = MockPlaying String
 
-playSound :: AudioEffect MockPlaying :> es => FilePath -> Eff es MockPlaying
+playSound :: (AudioEffect MockPlaying :> es) => FilePath -> Eff es MockPlaying
 playSound s = do
   AudioRep (AudioBackend play _) <- getStaticRep
   unsafeEff_ $ play s
 
-stopSound :: AudioEffect MockPlaying :> es => MockPlaying -> Eff es ()
+stopSound :: (AudioEffect MockPlaying :> es) => MockPlaying -> Eff es ()
 stopSound s = do
   AudioRep (AudioBackend _ stop) <- getStaticRep
   unsafeEff_ $ stop s
 
--- Das eigentliche Backend
 mockBackend :: AudioBackend MockPlaying
 mockBackend =
   AudioBackend
@@ -36,6 +44,5 @@ mockBackend =
         pure ()
     }
 
--- Effekt-Runner
-runAudio :: IOE :> es => Eff (AudioEffect MockPlaying : es) a -> Eff es a
+runAudio :: (IOE :> es) => Eff (AudioEffect MockPlaying : es) a -> Eff es a
 runAudio = evalStaticRep (AudioRep mockBackend)

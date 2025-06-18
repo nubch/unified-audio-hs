@@ -1,20 +1,26 @@
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE TypeOperators #-}
 
-module Fmod.Fmod where
+module Fmod.Fmod (runAudio, playSound, stopSound) where
 
 import Control.Monad (when)
+import Effectful (Eff, IOE, type (:>))
+import Effectful.Dispatch.Static
+  ( evalStaticRep,
+    getStaticRep,
+    unsafeEff_,
+  )
 import Foreign (Ptr, Storable (peek), alloca, nullPtr)
 import Foreign.C.String (CString, withCString)
 import Foreign.C.Types (CInt (..), CUInt (..))
-import Interface 
-
-import Effectful
-import Effectful.Dispatch.Static
+import Interface
+  ( AudioBackend (..),
+    AudioEffect,
+    StaticRep (AudioRep),
+  )
 
 data FMODSystem
 
@@ -79,33 +85,24 @@ stopFmod _ ch = do
   when (result /= 0) $ putStrLn $ "FMOD_Channel_Stop failed: " ++ show result
 
 makeBackendFmod :: SystemHandle -> AudioBackend PlayingHandle
-makeBackendFmod sys = AudioBackend {
-  playSoundB = playFmod sys,
-  stopSoundB = stopFmod sys
-}
+makeBackendFmod sys =
+  AudioBackend
+    { playSoundB = playFmod sys,
+      stopSoundB = stopFmod sys
+    }
 
-playSound :: AudioEffect PlayingHandle :> es => FilePath -> Eff es PlayingHandle
+playSound :: (AudioEffect PlayingHandle :> es) => FilePath -> Eff es PlayingHandle
 playSound fp = do
   AudioRep (AudioBackend play _) <- getStaticRep
   unsafeEff_ $ play fp
 
-stopSound :: AudioEffect PlayingHandle :> es => PlayingHandle -> Eff es ()
+stopSound :: (AudioEffect PlayingHandle :> es) => PlayingHandle -> Eff es ()
 stopSound playing = do
   AudioRep (AudioBackend _ stop) <- getStaticRep
   unsafeEff_ $ stop playing
 
-runAudio :: IOE :> es => Eff (AudioEffect PlayingHandle : es) a -> Eff es a 
+runAudio :: (IOE :> es) => Eff (AudioEffect PlayingHandle : es) a -> Eff es a
 runAudio eff = do
   sys <- unsafeEff_ initFmod
   let backend = makeBackendFmod sys
   evalStaticRep (AudioRep backend) eff
-
-
-
--- backendFmod :: AudioEffect SystemHandle SoundHandle PlayingHandle
--- backendFmod = AudioBackend {
--- initAudioB = initFmod,
--- loadSound = loadFmod,
--- playSound = playFmod,
--- stopSound = stopFmod
--- }

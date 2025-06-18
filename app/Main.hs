@@ -2,7 +2,6 @@ module Main where
 
 import Effectful
 import Effectful.Dispatch.Static
-import Interface 
 import Control.Concurrent (threadDelay)
 --import Mock
 import SDL.SDL
