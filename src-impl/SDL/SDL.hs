@@ -34,8 +34,11 @@ loadSDL fp = do
 
 playSDL :: FilePath -> IO PlayingHandle
 playSDL fp = do
-  chunk <- loadSDL fp
-  Mix.playOn 1 Mix.Once chunk
+  chunk    <- loadSDL fp
+  mChannel <- Mix.getAvailable Mix.DefaultGroup
+  case mChannel of 
+    Just channel -> Mix.playOn channel Mix.Once chunk :: IO PlayingHandle
+    Nothing      -> error "No available SDL Channel!" -- Maybe handle more gracefully
 
 stopSDL :: PlayingHandle -> IO ()
 stopSDL channel = do
