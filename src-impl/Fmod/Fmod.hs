@@ -4,22 +4,23 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Fmod.Fmod (runAudio, playSound, stopSound) where
+module Fmod.Fmod (runAudio, PlayingHandle) where
 
 import Control.Monad (when)
 import Effectful (Eff, IOE, type (:>))
 import Effectful.Dispatch.Static
   ( evalStaticRep,
-    getStaticRep,
     unsafeEff_,
   )
 import Foreign (Ptr, Storable (peek), alloca, nullPtr)
 import Foreign.C.String (CString, withCString)
-import Foreign.C.Types (CInt (..), CUInt (..))
+import Foreign.C.Types (CInt (..), CUInt (..), CFloat(..))
 import Interface
   ( AudioBackend (..),
     AudioEffect,
     StaticRep (AudioRep),
+    Volume,
+    unVolume
   )
 
 data FMODSystem
@@ -54,6 +55,9 @@ foreign import ccall "FMOD_System_PlaySound"
 foreign import ccall "FMOD_Channel_Stop"
   c_FMOD_Channel_Stop :: Ptr FMODChannel -> IO CInt
 
+foreign import ccall "FMOD_Channel_SetVolume"
+  c_FMOD_Channel_SetVolume :: Ptr FMODChannel -> CFloat -> IO CInt
+
 initFmod :: IO SystemHandle
 initFmod = alloca $ \pSystem -> do
   result <- c_FMOD_System_Create pSystem version
@@ -84,22 +88,18 @@ stopFmod _ ch = do
   result <- c_FMOD_Channel_Stop ch
   when (result /= 0) $ putStrLn $ "FMOD_Channel_Stop failed: " ++ show result
 
+setVolumeFmod :: Volume -> PlayingHandle -> IO ()
+setVolumeFmod vol ch = do
+  result <- c_FMOD_Channel_SetVolume ch (realToFrac $ unVolume vol)
+  when (result /= 0) $ putStrLn $ "FMOD_CHANNEL_VOLUME FAILED " ++ show result 
+
 makeBackendFmod :: SystemHandle -> AudioBackend PlayingHandle
 makeBackendFmod sys =
   AudioBackend
     { playSoundB = playFmod sys,
-      stopSoundB = stopFmod sys
+      stopSoundB = stopFmod sys,
+      setVolumeB = setVolumeFmod
     }
-
-playSound :: (AudioEffect PlayingHandle :> es) => FilePath -> Eff es PlayingHandle
-playSound fp = do
-  AudioRep (AudioBackend play _) <- getStaticRep
-  unsafeEff_ $ play fp
-
-stopSound :: (AudioEffect PlayingHandle :> es) => PlayingHandle -> Eff es ()
-stopSound playing = do
-  AudioRep (AudioBackend _ stop) <- getStaticRep
-  unsafeEff_ $ stop playing
 
 runAudio :: (IOE :> es) => Eff (AudioEffect PlayingHandle : es) a -> Eff es a
 runAudio eff = do
