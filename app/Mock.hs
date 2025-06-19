@@ -4,7 +4,7 @@
 
 module Mock
   ( runAudio,
-    MockPlaying,
+    Channel,
   )
 where
 
@@ -16,23 +16,25 @@ import Interface
     StaticRep (AudioRep),
   )
 
-newtype MockPlaying = MockPlaying String
+newtype Channel = Channel String
 
-mockBackend :: AudioBackend MockPlaying
+mockBackend :: AudioBackend Channel
 mockBackend =
   AudioBackend
     { playSoundB = \fp -> do
         putStrLn $ prefix ++ "Loading sound: " ++ fp
-        pure $ MockPlaying ("Playing " ++ fp),
-      stopSoundB = \(MockPlaying pl) -> do
+        pure $ Channel ("Playing " ++ fp),
+      stopSoundB = \(Channel pl) -> do
         putStrLn $ prefix ++ "Stopping sound:" ++ pl
         pure (),
-      setVolumeB = \vol (MockPlaying pl) -> do
-        putStrLn $ prefix ++ "Setting volume of " ++ pl ++ " to " ++ show vol
+      setVolumeB = \(Channel pl) vol -> do
+        putStrLn $ prefix ++ "Setting volume of " ++ pl ++ " to " ++ show vol,
+      setPanningB = \(Channel pl) pan -> do
+        putStrLn $ prefix ++ "Setting panning of " ++ pl ++ " to " ++ show pan
     }
 
 prefix :: String
 prefix = "[Mock] -> "
 
-runAudio :: (IOE :> es) => Eff (AudioEffect MockPlaying : es) a -> Eff es a
+runAudio :: (IOE :> es) => Eff (AudioEffect Channel : es) a -> Eff es a
 runAudio = evalStaticRep (AudioRep mockBackend)

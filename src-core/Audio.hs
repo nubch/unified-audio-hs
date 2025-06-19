@@ -5,6 +5,7 @@ module Audio
   ( playSound
   , stopSound
   , setVolume
+  , setPanning
   ) where
 
 import Effectful
@@ -21,7 +22,12 @@ stopSound playing = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.stopSoundB playing
 
-setVolume :: (AudioEffect playing :> es) => Volume -> playing -> Eff es ()
-setVolume volume playing = do
+setVolume :: (AudioEffect playing :> es) => playing -> Volume -> Eff es ()
+setVolume playing volume = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.setVolumeB volume playing
+  unsafeEff_ $ backend.setVolumeB playing volume
+
+setPanning :: (AudioEffect playing :> es) => playing -> Panning -> Eff es ()
+setPanning playing panning = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.setPanningB playing panning
