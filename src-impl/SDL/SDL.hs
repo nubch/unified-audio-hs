@@ -4,8 +4,7 @@
 
 module SDL.SDL
   ( runAudio,
-    playSound,
-    stopSound,
+    PlayingHandle
   )
 where
 
@@ -44,22 +43,22 @@ stopSDL :: PlayingHandle -> IO ()
 stopSDL channel = do
   Mix.halt channel
 
+setVolumeSDL :: Volume -> PlayingHandle -> IO ()
+setVolumeSDL vol playing = do 
+  Mix.setVolume (toSDLVolume vol) playing
+
+toSDLVolume :: Volume -> Int
+toSDLVolume vol = round (volume * 128)
+  where volume = unVolume vol
+
 makeBackendSDL :: AudioBackend PlayingHandle
 makeBackendSDL =
   AudioBackend
     { playSoundB = playSDL,
-      stopSoundB = stopSDL
+      stopSoundB = stopSDL,
+      setVolumeB = setVolumeSDL
     }
 
-playSound :: (AudioEffect PlayingHandle :> es) => FilePath -> Eff es PlayingHandle
-playSound fp = do
-  AudioRep (AudioBackend play _) <- getStaticRep
-  unsafeEff_ $ play fp
-
-stopSound :: (AudioEffect PlayingHandle :> es) => PlayingHandle -> Eff es ()
-stopSound playing = do
-  AudioRep (AudioBackend _ stop) <- getStaticRep
-  unsafeEff_ $ stop playing
 
 runAudio :: (IOE :> es) => Eff (AudioEffect PlayingHandle : es) a -> Eff es a
 runAudio eff = do

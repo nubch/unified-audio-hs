@@ -57,7 +57,7 @@ common warnings
 library core
     import:           warnings
 
-    exposed-modules:  Interface
+    exposed-modules:  Interface, Audio
 
     -- other-modules:
 
@@ -69,6 +69,7 @@ library core
 
     -- Base language which the package is written in.
     default-language: Haskell2010
+    default-extensions: OverloadedRecordDot
 
 
 library sdl-impl
@@ -90,6 +91,8 @@ library sdl-impl
     -- Base language which the package is written in.
     default-language: Haskell2010
 
+    default-extensions: OverloadedRecordDot
+
 library fmod-impl
     import:           warnings
 
@@ -104,6 +107,8 @@ library fmod-impl
 
     -- Base language which the package is written in.
     default-language: Haskell2010
+
+    default-extensions: OverloadedRecordDot
 
 
 executable unified-audio-hs
