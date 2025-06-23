@@ -129,6 +129,8 @@ executable unified-audio-hs
         base,
         unified-audio-hs:core,
         effectful,
+        effectful-core,
+        effectful-plugin,
         unified-audio-hs:sdl-impl,
         unified-audio-hs:fmod-impl
 
@@ -141,6 +143,7 @@ executable unified-audio-hs
     extra-lib-dirs:    /home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
     extra-libraries:   fmod
     ghc-options:       -optl-Wl,-rpath=/home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
+                       -fplugin=Effectful.Plugin
 
 test-suite unified-audio-hs-test
     -- Import common warning flags.
