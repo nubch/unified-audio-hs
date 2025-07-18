@@ -97,7 +97,8 @@ library sdl-impl
 library fmod-impl
     import:           warnings
 
-    exposed-modules:  Fmod.Fmod
+    exposed-modules:  Fmod.Fmod,
+                      Fmod.Result
 
     build-depends:    base, 
                       effectful,
