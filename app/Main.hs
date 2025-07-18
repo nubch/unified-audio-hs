@@ -10,17 +10,16 @@ module Main where
 import Effectful
 import Effectful.Dispatch.Static ( unsafeEff_, unsafeEff )
 import Control.Concurrent (threadDelay)
-import Audio 
 import qualified Mock
 import Control.Concurrent
 import qualified SDL.Backend as SDL
 import qualified Fmod.Backend as Fmod
-import qualified Interface as I
+import UnifiedAudio.Effectful
 
 main :: IO ()
 main = runEff $ Fmod.runAudio test
 
-test :: (I.Audio channel :> es) => Eff es ()
+test :: (Audio channel :> es) => Eff es ()
 test = do
   sound <- load "flim.mp3"
   playing <- play sound

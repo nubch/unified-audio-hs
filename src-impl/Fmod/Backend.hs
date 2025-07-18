@@ -7,7 +7,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use join" #-}
 
-module Fmod.Backend (runAudio, Channel) where
+module Fmod.Backend (runAudio) where
 
 -- Effectful
 import Data.Kind (Type)
@@ -18,24 +18,23 @@ import Effectful.Dispatch.Static
   )
 
 -- Interface
-import Interface
-import Fmod.Raw
+import qualified UnifiedAudio.Effectful as I
 import qualified Fmod.Safe as F
 
 
-loadFmod :: F.System -> FilePath -> IO (FmodState Loaded)
+loadFmod :: F.System -> FilePath -> IO (FmodState I.Loaded)
 loadFmod system path = LoadedSound <$> F.createSound system path
 
-playFmod :: F.System -> FmodState Loaded -> IO (FmodState Playing)
+playFmod :: F.System -> FmodState I.Loaded -> IO (FmodState I.Playing)
 playFmod system (LoadedSound sound) = PlayingSound <$> F.playSound system sound
 
 setPausedFmod :: Bool -> F.Channel -> IO F.Channel
 setPausedFmod paused channel = F.setPaused paused channel >> return channel
 
-pauseFmod :: FmodState Playing -> IO (FmodState Paused)
+pauseFmod :: FmodState I.Playing -> IO (FmodState I.Paused)
 pauseFmod (PlayingSound channel) = PausedSound <$> setPausedFmod True channel
 
-resumeFmod :: FmodState Paused -> IO (FmodState Playing)
+resumeFmod :: FmodState I.Paused -> IO (FmodState I.Playing)
 resumeFmod (PausedSound channel) = PlayingSound <$> setPausedFmod False channel
 
 -- stopFmod :: SystemHandle -> Channel -> IO ()
@@ -53,21 +52,21 @@ resumeFmod (PausedSound channel) = PlayingSound <$> setPausedFmod False channel
 -- result <- c_FMOD_Channel_SetPan ch (realToFrac $ unPanning pan)
 -- when (result /= 0) $ putStrLn $ "FMOD_CHANNEL_PANNING FAILED " ++ show result
 
-data FmodState :: Status -> Type where
-  LoadedSound  :: F.Sound -> FmodState Loaded
-  PlayingSound :: F.Channel -> FmodState Playing
-  PausedSound  :: F.Channel -> FmodState Paused
+data FmodState :: I.Status -> Type where
+  LoadedSound  :: F.Sound -> FmodState I.Loaded
+  PlayingSound :: F.Channel -> FmodState I.Playing
+  PausedSound  :: F.Channel -> FmodState I.Paused
 
-makeBackendFmod :: F.System -> AudioBackend FmodState
+makeBackendFmod :: F.System -> I.AudioBackend FmodState
 makeBackendFmod sys =
-  AudioBackend
-    { playA = playFmod sys,
-      loadA = loadFmod sys,
-      pauseA = pauseFmod,
-      resumeA = resumeFmod
+  I.AudioBackend
+    { I.playA = playFmod sys,
+      I.loadA = loadFmod sys,
+      I.pauseA = pauseFmod,
+      I.resumeA = resumeFmod
     }
 
-runAudio :: (IOE :> es) => Eff (Audio FmodState : es) a -> Eff es a
+runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a
 runAudio eff = unsafeEff_ (F.withSystem \sys -> do
     let backend = makeBackendFmod sys
-    return $ evalStaticRep (AudioRep backend) eff) >>= id
+    return $ evalStaticRep (I.AudioRep backend) eff) >>= id

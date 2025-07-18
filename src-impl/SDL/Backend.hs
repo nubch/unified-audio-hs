@@ -10,11 +10,16 @@ module SDL.Backend
   )
 where
 
+-- Effectful
 import Effectful
 import Effectful.Dispatch.Static
-import Interface
+
+-- SDL Library
 import qualified SDL
 import qualified SDL.Mixer as Mix
+
+-- Interface
+import qualified UnifiedAudio.Effectful as I
 import Control.Monad
 import Data.Kind (Type)
 
@@ -27,12 +32,12 @@ initSDL = do
   putStrLn "SDL Init completed."
   return ()
 
-loadSDL :: FilePath -> IO (SDLSound Loaded)
+loadSDL :: FilePath -> IO (SDLSound I.Loaded)
 loadSDL fp = do
   loaded <- Mix.load fp
   pure $ LoadedSound loaded
 
-playSDL :: SDLSound Loaded -> IO (SDLSound Playing)
+playSDL :: SDLSound I.Loaded -> IO (SDLSound I.Playing)
 playSDL (LoadedSound loaded) = do
   mChannel <- Mix.getAvailable Mix.DefaultGroup
   case mChannel of 
@@ -41,7 +46,7 @@ playSDL (LoadedSound loaded) = do
       pure $ PlayingSound playing
     Nothing      -> error "No available SDL Channel!" -- Maybe handle this more gracefully
 
-resumeSDL :: SDLSound Paused -> IO (SDLSound Playing)
+resumeSDL :: SDLSound I.Paused -> IO (SDLSound I.Playing)
 resumeSDL (PausedSound playing) = do
   Mix.resume playing
   pure $ PlayingSound playing
@@ -50,50 +55,49 @@ stopSDL :: Channel -> IO ()
 stopSDL channel = do
   Mix.halt channel
 
-pauseSDL :: SDLSound Playing -> IO (SDLSound Paused)
+pauseSDL :: SDLSound I.Playing -> IO (SDLSound I.Paused)
 pauseSDL (PlayingSound channel) = do
   Mix.pause channel
   pure $ PausedSound channel
 
-setVolumeSDL :: Channel -> Volume -> IO ()
+setVolumeSDL :: Channel -> I.Volume -> IO ()
 setVolumeSDL playing vol = do 
   Mix.setVolume (toSDLVolume vol) playing
 
 
-setPanningSDL :: Channel -> Panning -> IO ()
+setPanningSDL :: Channel -> I.Panning -> IO ()
 setPanningSDL playing pan = do
   let (left, right) = toSDLPanning pan
   void $ Mix.effectPan playing left right
-  
 
-toSDLVolume :: Volume -> Int
+toSDLVolume :: I.Volume -> Int
 toSDLVolume vol = round (volume * 128)
-  where volume = unVolume vol
+  where volume = I.unVolume vol
 
-toSDLPanning :: Panning -> (Int, Int)
+toSDLPanning :: I.Panning -> (Int, Int)
 toSDLPanning pan = 
-  let panning = unPanning pan
+  let panning = I.unPanning pan
       left    = round $ 64 * (1 - panning)
       right   = round $ 64 * (1 + panning)
   in (left, right)
 
 
-makeBackendSDL :: AudioBackend SDLSound
+makeBackendSDL :: I.AudioBackend SDLSound
 makeBackendSDL =
-  AudioBackend
-    { playA  = playSDL,
-      loadA  = loadSDL,
-      pauseA  = pauseSDL,
-      resumeA = resumeSDL
+  I.AudioBackend
+    { I.playA  = playSDL,
+      I.loadA  = loadSDL,
+      I.pauseA  = pauseSDL,
+      I.resumeA = resumeSDL
       --setPanningB = setPanningSDL
     }
 
-data SDLSound :: Status -> Type where
-  LoadedSound :: Mix.Chunk -> SDLSound Loaded
-  PlayingSound :: Mix.Channel -> SDLSound Playing
-  PausedSound :: Mix.Channel -> SDLSound Paused
+data SDLSound :: I.Status -> Type where
+  LoadedSound :: Mix.Chunk -> SDLSound I.Loaded
+  PlayingSound :: Mix.Channel -> SDLSound I.Playing
+  PausedSound :: Mix.Channel -> SDLSound I.Paused
 
-runAudio :: (IOE :> es) => Eff (Audio SDLSound : es) a -> Eff es a
+runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a
 runAudio eff = do
   unsafeEff_ initSDL
-  evalStaticRep (AudioRep makeBackendSDL) eff
+  evalStaticRep (I.AudioRep makeBackendSDL) eff

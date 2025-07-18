@@ -57,7 +57,7 @@ common warnings
 library core
     import:           warnings
 
-    exposed-modules:  Interface, Audio
+    exposed-modules:  UnifiedAudio.Effectful
 
     -- other-modules:
 

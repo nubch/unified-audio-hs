@@ -12,12 +12,7 @@ where
 import Effectful (Eff, IOE, type (:>))
 import Effectful.Dispatch.Static (evalStaticRep)
 import Data.Kind (Type)
-import Interface
-  ( AudioBackend (..),
-    Audio,
-    StaticRep (AudioRep),
-    Status (..)
-  )
+import UnifiedAudio.Effectful
 
 data MockSound :: Status -> Type where
   LoadedSound :: String -> MockSound Loaded
