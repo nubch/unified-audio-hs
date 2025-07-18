@@ -17,9 +17,6 @@ import Foreign
 import Foreign.C
 import Control.Exception
 
-import Text.Printf
-import Fmod.Raw (FMOD_RESULT)
-
 newtype System    = System  (ForeignPtr Raw.FMODSystem)
 newtype Sound     = Sound   (ForeignPtr Raw.FMODSound)
 newtype Channel   = Channel   (ForeignPtr Raw.FMODChannel)
@@ -44,7 +41,7 @@ createSound (System sys) path =
   alloca             $ \ppSound -> do
     checkResult =<< Raw.c_FMOD_System_CreateSound pSys cPath 0 nullPtr ppSound
     sndPtr <- peek ppSound
-    fp     <- newForeignPtr_ sndPtr
+    fp     <- newForeignPtr c_FMOD_Sound_Release sndPtr
     pure (Sound fp)
 
 playSound :: System -> Sound -> IO Channel
@@ -66,8 +63,8 @@ setPaused paused (Channel ch) =
 foreign import ccall unsafe "&FMOD_System_Release"
   c_FMOD_System_Release :: FinalizerPtr Raw.FMODSystem
 
---foreign import ccall unsafe "&FMOD_Sound_Release"
-  --c_FMOD_Sound_Release :: FinalizerPtr Raw.FMODSound 
+foreign import ccall unsafe "&FMOD_Sound_Release"
+  c_FMOD_Sound_Release :: FinalizerPtr Raw.FMODSound 
 
 --foreign import ccall unsafe "&FMOD_Channel_Stop"
 --  c_FMOD_Channel_Stop :: FunPtr (Ptr Raw.FMODChannel -> IO CInt)

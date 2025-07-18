@@ -21,7 +21,7 @@ import Effectful
 import Effectful.Dispatch.Static
 import Data.Kind (Type)
 
-data Status = Loaded | Playing | Paused
+data Status = Loaded | Playing | Paused | Stopped
 
 --- Effectful
 
@@ -32,8 +32,10 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
     loadA :: FilePath -> IO (s Loaded),
     playA :: s Loaded -> IO (s Playing),
     pauseA :: s Playing -> IO (s Paused),
-    resumeA :: s Paused -> IO (s Playing)
-    --setVolumeA :: Volume -> s Playing -> IO (),
+    resumeA :: s Paused -> IO (s Playing),
+    setVolumeA :: s Playing -> Volume -> IO (),
+    setPanningA :: s Playing -> Panning -> IO (),
+    stopChannelA :: s Playing -> IO (s Stopped)
     --unloadA :: s Loaded -> IO ()
     -- and other operations, like seekA, loopA, or what have you
   }
@@ -45,20 +47,17 @@ newtype Volume = Volume Float deriving Show -- Only values between 0 and 1
 
 newtype Panning = Panning Float deriving Show
 
---- Smart Constructor
-
+--- Smart Constructors
 load :: Audio s :> es => FilePath -> Eff es (s Loaded)
 load bytes = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ (loadA backend bytes)
+  unsafeEff_ $ backend.loadA bytes
 
 resume :: Audio s :> es => s Paused -> Eff es (s Playing)
-resume playing = do
+resume channel = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ (backend.resumeA playing)
+  unsafeEff_ $ backend.resumeA channel
 
--- something extra here, we can easily write functions that do not
--- correspond 1:1 to the backend functions
 loadFile :: Audio s :> es => FilePath -> Eff es (s Loaded)
 loadFile filePath =
   unsafeEff_ (readFile filePath) >>= load
@@ -66,27 +65,30 @@ loadFile filePath =
 play :: Audio s :> es => s Loaded -> Eff es (s Playing)
 play sound = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ (playA backend sound)
+  unsafeEff_ $ backend.playA sound
 
 pause :: Audio s :> es => s Playing -> Eff es (s Paused)
-pause pl = do
+pause channel = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ (pauseA backend pl) 
+  unsafeEff_ $ backend.pauseA channel
 
---stopSound :: (AudioEffect playing :> es) => playing -> Eff es ()
---stopSound playing = do
-  --AudioRep backend <- getStaticRep
-  --unsafeEff_ $ backend.stopSoundB playing
+stopSound :: Audio s :> es => s Playing -> Eff es (s Stopped)
+stopSound channel = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.stopChannelA channel
 
---setVolume :: (AudioEffect playing :> es) => playing -> Volume -> Eff es ()
---setVolume playing volume = do
-  --AudioRep backend <- getStaticRep
-  --unsafeEff_ $ backend.setVolumeB playing volume
+setVolume :: Audio s :> es => s Playing -> Volume -> Eff es ()
+setVolume channel volume = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.setVolumeA channel volume
 
---setPanning :: (AudioEffect playing :> es) => playing -> Panning -> Eff es ()
---setPanning playing panning = do
-  --AudioRep backend <- getStaticRep
-  --unsafeEff_ $ backend.setPanningB playing panning
+mute :: Audio s :> es => s Playing -> Eff es ()
+mute channel = setVolume channel (mkVolume 0.0)
+
+setPanning :: Audio s :> es => s Playing -> Panning -> Eff es ()
+setPanning channel panning = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.setPanningA channel panning
 
 --- Utilities
 
