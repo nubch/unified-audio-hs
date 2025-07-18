@@ -21,7 +21,6 @@ import Effectful.Dispatch.Static
 import qualified UnifiedAudio.Effectful as I
 import qualified Fmod.Safe as F
 
-
 loadFmod :: F.System -> FilePath -> IO (FmodState I.Loaded)
 loadFmod system path = LoadedSound <$> F.createSound system path
 
@@ -37,25 +36,22 @@ pauseFmod (PlayingSound channel) = PausedSound <$> setPausedFmod True channel
 resumeFmod :: FmodState I.Paused -> IO (FmodState I.Playing)
 resumeFmod (PausedSound channel) = PlayingSound <$> setPausedFmod False channel
 
--- stopFmod :: SystemHandle -> Channel -> IO ()
--- stopFmod _ ch = do
--- result <- c_FMOD_Channel_Stop ch
--- when (result /= 0) $ putStrLn $ "FMOD_Channel_Stop failed: " ++ show result
+setVolumeFmod :: FmodState I.Playing -> I.Volume -> IO ()
+setVolumeFmod (PlayingSound playing) volume = F.setVolume playing (realToFrac $ I.unVolume volume)
 
--- setVolumeFmod :: Channel -> Volume -> IO ()
--- setVolumeFmod ch vol = do
--- result <- c_FMOD_Channel_SetVolume ch (realToFrac $ unVolume vol)
--- when (result /= 0) $ putStrLn $ "FMOD_CHANNEL_VOLUME FAILED " ++ show result
+setPanningFmod :: FmodState I.Playing -> I.Panning -> IO ()
+setPanningFmod (PlayingSound playing) panning = F.setPanning playing (realToFrac $ I.unPanning panning)
 
--- setPanningFmod :: Channel -> Panning -> IO ()
--- setPanningFmod ch pan = do
--- result <- c_FMOD_Channel_SetPan ch (realToFrac $ unPanning pan)
--- when (result /= 0) $ putStrLn $ "FMOD_CHANNEL_PANNING FAILED " ++ show result
+stopChannel :: FmodState I.Playing -> IO (FmodState I.Stopped)
+stopChannel (PlayingSound channel) = do
+  F.stopChannel channel 
+  return $ StoppedSound channel
 
 data FmodState :: I.Status -> Type where
   LoadedSound  :: F.Sound -> FmodState I.Loaded
   PlayingSound :: F.Channel -> FmodState I.Playing
   PausedSound  :: F.Channel -> FmodState I.Paused
+  StoppedSound :: F.Channel -> FmodState I.Stopped
 
 makeBackendFmod :: F.System -> I.AudioBackend FmodState
 makeBackendFmod sys =
@@ -63,7 +59,10 @@ makeBackendFmod sys =
     { I.playA = playFmod sys,
       I.loadA = loadFmod sys,
       I.pauseA = pauseFmod,
-      I.resumeA = resumeFmod
+      I.resumeA = resumeFmod,
+      I.setVolumeA = setVolumeFmod,
+      I.setPanningA = setPanningFmod,
+      I.stopChannelA = stopChannel
     }
 
 runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a

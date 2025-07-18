@@ -10,15 +10,7 @@ data FMODSystem
 data FMODSound
 data FMODChannel
 
-type SystemHandle = Ptr FMODSystem
-
-type SoundHandle = Ptr FMODSound
-
-type Channel = Ptr FMODChannel
-
 type FMOD_RESULT = CInt
-
-
 
 foreign import ccall unsafe "FMOD_System_Create"
   c_FMOD_System_Create :: Ptr (Ptr FMODSystem) -> CUInt -> IO FMOD_RESULT
