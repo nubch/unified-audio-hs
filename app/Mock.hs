@@ -35,7 +35,10 @@ mockBackend =
         pure (PlayingSound i),
       pauseA = \(PlayingSound i) -> do
         putStrLn $ "paused " ++ i
-        pure (PausedSound i)
+        pure (PausedSound i),
+      resumeA = \(PausedSound i) -> do
+        putStrLn $ "resumed" ++ i
+        pure (PlayingSound i)
       --setVolumeB = \(Channel pl) vol -> do
       --  putStrLn $ prefix ++ "Setting volume of " ++ pl ++ " to " ++ show vol,
       --setPanningB = \(Channel pl) pan -> do

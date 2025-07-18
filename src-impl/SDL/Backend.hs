@@ -4,7 +4,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 
-module SDL.SDL
+module SDL.Backend
   ( runAudio,
     SDLSound
   )
@@ -18,13 +18,9 @@ import qualified SDL.Mixer as Mix
 import Control.Monad
 import Data.Kind (Type)
 
-type SystemHandle = ()
-
-type SoundHandle = Mix.Chunk
-
 type Channel = Mix.Channel
 
-initSDL :: IO SystemHandle
+initSDL :: IO ()
 initSDL = do
   SDL.initialize [SDL.InitAudio]
   Mix.openAudio Mix.defaultAudio 4096

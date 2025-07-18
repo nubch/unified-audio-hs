@@ -76,7 +76,7 @@ library core
 library sdl-impl
     import:           warnings
 
-    exposed-modules:  SDL.SDL
+    exposed-modules:  SDL.Backend
 
     -- other-modules:
 
@@ -97,8 +97,10 @@ library sdl-impl
 library fmod-impl
     import:           warnings
 
-    exposed-modules:  Fmod.Fmod,
-                      Fmod.Result
+    exposed-modules:  Fmod.Backend,
+                      Fmod.Result,
+                      Fmod.Raw,
+                      Fmod.Safe
 
     build-depends:    base, 
                       effectful,
@@ -112,11 +114,16 @@ library fmod-impl
 
     default-extensions: OverloadedRecordDot
 
+    extra-lib-dirs:    /home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
+    extra-libraries:   fmod
+    ghc-options:       -optl-Wl,-rpath=/home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
+
 
 executable unified-audio-hs
     -- Import common warning flags.
     import:           warnings
 
+  
     -- .hs or .lhs file containing the Main module.
     main-is:          Main.hs
 
