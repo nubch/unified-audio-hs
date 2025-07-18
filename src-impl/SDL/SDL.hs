@@ -1,10 +1,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 
 module SDL.SDL
   ( runAudio,
-    Channel
+    SDLSound
   )
 where
 
@@ -14,6 +16,7 @@ import Interface
 import qualified SDL
 import qualified SDL.Mixer as Mix
 import Control.Monad
+import Data.Kind (Type)
 
 type SystemHandle = ()
 
@@ -28,25 +31,38 @@ initSDL = do
   putStrLn "SDL Init completed."
   return ()
 
-loadSDL :: FilePath -> IO SoundHandle
+loadSDL :: FilePath -> IO (SDLSound Loaded)
 loadSDL fp = do
-  Mix.load fp
+  loaded <- Mix.load fp
+  pure $ LoadedSound loaded
 
-playSDL :: FilePath -> IO Channel
-playSDL fp = do
-  chunk    <- loadSDL fp
+playSDL :: SDLSound Loaded -> IO (SDLSound Playing)
+playSDL (LoadedSound loaded) = do
   mChannel <- Mix.getAvailable Mix.DefaultGroup
   case mChannel of 
-    Just channel -> Mix.playOn channel Mix.Once chunk :: IO Channel
+    Just channel -> do 
+      playing <- Mix.playOn channel Mix.Once loaded
+      pure $ PlayingSound playing
     Nothing      -> error "No available SDL Channel!" -- Maybe handle this more gracefully
+
+resumeSDL :: SDLSound Paused -> IO (SDLSound Playing)
+resumeSDL (PausedSound playing) = do
+  Mix.resume playing
+  pure $ PlayingSound playing
 
 stopSDL :: Channel -> IO ()
 stopSDL channel = do
   Mix.halt channel
 
+pauseSDL :: SDLSound Playing -> IO (SDLSound Paused)
+pauseSDL (PlayingSound channel) = do
+  Mix.pause channel
+  pure $ PausedSound channel
+
 setVolumeSDL :: Channel -> Volume -> IO ()
 setVolumeSDL playing vol = do 
   Mix.setVolume (toSDLVolume vol) playing
+
 
 setPanningSDL :: Channel -> Panning -> IO ()
 setPanningSDL playing pan = do
@@ -66,16 +82,22 @@ toSDLPanning pan =
   in (left, right)
 
 
-makeBackendSDL :: AudioBackend Channel
+makeBackendSDL :: AudioBackend SDLSound
 makeBackendSDL =
   AudioBackend
-    { playSoundB  = playSDL,
-      stopSoundB  = stopSDL,
-      setVolumeB  = setVolumeSDL,
-      setPanningB = setPanningSDL
+    { playA  = playSDL,
+      loadA  = loadSDL,
+      pauseA  = pauseSDL,
+      resumeA = resumeSDL
+      --setPanningB = setPanningSDL
     }
 
-runAudio :: (IOE :> es) => Eff (AudioEffect Channel : es) a -> Eff es a
+data SDLSound :: Status -> Type where
+  LoadedSound :: Mix.Chunk -> SDLSound Loaded
+  PlayingSound :: Mix.Channel -> SDLSound Playing
+  PausedSound :: Mix.Channel -> SDLSound Paused
+
+runAudio :: (IOE :> es) => Eff (Audio SDLSound : es) a -> Eff es a
 runAudio eff = do
   unsafeEff_ initSDL
   evalStaticRep (AudioRep makeBackendSDL) eff

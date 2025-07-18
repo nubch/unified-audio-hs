@@ -1,33 +1,56 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DataKinds #-}
 
 module Audio
-  ( playSound
-  , stopSound
-  , setVolume
-  , setPanning
+  ( load,
+    play,
+    pause,
+    resume
   ) where
 
 import Effectful
 import Effectful.Dispatch.Static
 import Interface
+import GHC.Base (unsafeChr)
 
-playSound :: (AudioEffect playing :> es) => FilePath -> Eff es playing
-playSound fp = do
+load :: Audio s :> es => FilePath -> Eff es (s Loaded)
+load bytes = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.playSoundB fp
+  unsafeEff_ (loadA backend bytes)
 
-stopSound :: (AudioEffect playing :> es) => playing -> Eff es ()
-stopSound playing = do
+resume :: Audio s :> es => s Paused -> Eff es (s Playing)
+resume playing = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.stopSoundB playing
+  unsafeEff_ (backend.resumeA playing)
 
-setVolume :: (AudioEffect playing :> es) => playing -> Volume -> Eff es ()
-setVolume playing volume = do
-  AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.setVolumeB playing volume
+-- something extra here, we can easily write functions that do not
+-- correspond 1:1 to the backend functions
+loadFile :: Audio s :> es => FilePath -> Eff es (s Loaded)
+loadFile filePath =
+  unsafeEff_ (readFile filePath) >>= load
 
-setPanning :: (AudioEffect playing :> es) => playing -> Panning -> Eff es ()
-setPanning playing panning = do
+play :: Audio s :> es => s Loaded -> Eff es (s Playing)
+play sound = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.setPanningB playing panning
+  unsafeEff_ (playA backend sound)
+
+pause :: Audio s :> es => s Playing -> Eff es (s Paused)
+pause pl = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ (pauseA backend pl) 
+
+--stopSound :: (AudioEffect playing :> es) => playing -> Eff es ()
+--stopSound playing = do
+  --AudioRep backend <- getStaticRep
+  --unsafeEff_ $ backend.stopSoundB playing
+
+--setVolume :: (AudioEffect playing :> es) => playing -> Volume -> Eff es ()
+--setVolume playing volume = do
+  --AudioRep backend <- getStaticRep
+  --unsafeEff_ $ backend.setVolumeB playing volume
+
+--setPanning :: (AudioEffect playing :> es) => playing -> Panning -> Eff es ()
+--setPanning playing panning = do
+  --AudioRep backend <- getStaticRep
+  --unsafeEff_ $ backend.setPanningB playing panning

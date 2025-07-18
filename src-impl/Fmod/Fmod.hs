@@ -3,6 +3,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE GADTs #-}
 
 module Fmod.Fmod (runAudio, Channel) where
 
@@ -14,8 +16,11 @@ import Effectful.Dispatch.Static
   )
 import Foreign (Ptr, Storable (peek), alloca, nullPtr)
 import Foreign.C.String (CString, withCString)
-import Foreign.C.Types (CInt (..), CUInt (..), CFloat(..))
+import Foreign.C.Types (CInt (..), CUInt (..), CFloat(..), CBool (..))
+import Foreign.Marshal.Utils (fromBool)
+import Data.Kind (Type)
 import Interface
+
 
 data FMODSystem
 
@@ -46,6 +51,9 @@ foreign import ccall "FMOD_System_CreateSound"
 foreign import ccall "FMOD_System_PlaySound"
   c_FMOD_System_PlaySound :: Ptr FMODSystem -> Ptr FMODSound -> Ptr () -> CInt -> Ptr (Ptr FMODChannel) -> IO FMOD_RESULT
 
+foreign import ccall "FMOD_Channel_SetPaused"
+  c_FMOD_Channel_SetPaused :: Ptr FMODChannel -> CBool -> IO FMOD_RESULT
+
 foreign import ccall "FMOD_Channel_Stop"
   c_FMOD_Channel_Stop :: Ptr FMODChannel -> IO FMOD_RESULT
 
@@ -64,47 +72,65 @@ initFmod = alloca $ \pSystem -> do
   result2 <- c_FMOD_System_Init system 512 0 nullPtr
   if result2 /= 0 then error $ "FMOD Init failed" ++ show result2 else return system
 
-loadFmod :: SystemHandle -> FilePath -> IO SoundHandle
+loadFmod :: SystemHandle -> FilePath -> IO (FmodState Loaded)
 loadFmod system path = withCString path $ \cPath ->
   alloca $ \pSound -> do
     result <- c_FMOD_System_CreateSound system cPath 0 nullPtr pSound
     if result /= 0
       then error $ "FMOD_CreateSound failed: " ++ show result
-      else peek pSound
+      else LoadedSound <$> peek pSound
 
-playFmod :: SystemHandle -> FilePath -> IO Channel
-playFmod system fp = alloca $ \pChannel -> do
-  sound <- loadFmod system fp
+playFmod :: SystemHandle -> FmodState Loaded -> IO (FmodState Playing)
+playFmod system (LoadedSound sound) = alloca $ \pChannel -> do
   result <- c_FMOD_System_PlaySound system sound nullPtr 0 pChannel
   if result /= 0
     then error $ "FMOD_PlaySound failed: " ++ show result
-    else peek pChannel
+    else PlayingSound <$> peek pChannel
 
-stopFmod :: SystemHandle -> Channel -> IO ()
-stopFmod _ ch = do
-  result <- c_FMOD_Channel_Stop ch
-  when (result /= 0) $ putStrLn $ "FMOD_Channel_Stop failed: " ++ show result
+setPausedFmod :: Bool -> Channel -> IO Channel
+setPausedFmod paused channel = do
+  result <- c_FMOD_Channel_SetPaused channel (fromBool paused)
+  if result /= 0
+    then error $ "FMOD_SetPaused failed: " ++ show result
+    else pure channel
 
-setVolumeFmod :: Channel -> Volume -> IO ()
-setVolumeFmod ch vol = do
-  result <- c_FMOD_Channel_SetVolume ch (realToFrac $ unVolume vol)
-  when (result /= 0) $ putStrLn $ "FMOD_CHANNEL_VOLUME FAILED " ++ show result 
 
-setPanningFmod :: Channel -> Panning -> IO ()
-setPanningFmod ch pan = do
-  result <- c_FMOD_Channel_SetPan ch (realToFrac $ unPanning pan)
-  when (result /= 0) $ putStrLn $ "FMOD_CHANNEL_PANNING FAILED " ++ show result 
+pauseFmod :: SystemHandle -> FmodState Playing -> IO (FmodState Paused)
+pauseFmod sys (PlayingSound channel) = PausedSound <$> setPausedFmod True channel
 
-makeBackendFmod :: SystemHandle -> AudioBackend Channel
+resumeFmod :: SystemHandle -> FmodState Paused -> IO (FmodState Playing)
+resumeFmod sys (PausedSound channel) = PlayingSound <$> setPausedFmod False channel
+
+--stopFmod :: SystemHandle -> Channel -> IO ()
+--stopFmod _ ch = do
+  --result <- c_FMOD_Channel_Stop ch
+  --when (result /= 0) $ putStrLn $ "FMOD_Channel_Stop failed: " ++ show result
+
+--setVolumeFmod :: Channel -> Volume -> IO ()
+--setVolumeFmod ch vol = do
+  --result <- c_FMOD_Channel_SetVolume ch (realToFrac $ unVolume vol)
+  --when (result /= 0) $ putStrLn $ "FMOD_CHANNEL_VOLUME FAILED " ++ show result 
+
+--setPanningFmod :: Channel -> Panning -> IO ()
+--setPanningFmod ch pan = do
+  --result <- c_FMOD_Channel_SetPan ch (realToFrac $ unPanning pan)
+  --when (result /= 0) $ putStrLn $ "FMOD_CHANNEL_PANNING FAILED " ++ show result 
+
+data FmodState :: Status -> Type where
+  LoadedSound :: SoundHandle -> FmodState Loaded
+  PlayingSound :: Channel -> FmodState Playing
+  PausedSound :: Channel -> FmodState Paused
+
+makeBackendFmod :: SystemHandle -> AudioBackend FmodState
 makeBackendFmod sys =
   AudioBackend
-    { playSoundB  = playFmod sys,
-      stopSoundB  = stopFmod sys,
-      setVolumeB  = setVolumeFmod,
-      setPanningB = setPanningFmod
+    { playA  = playFmod sys,
+      loadA  = loadFmod sys,
+      pauseA  = pauseFmod sys,
+      resumeA = resumeFmod sys
     }
 
-runAudio :: (IOE :> es) => Eff (AudioEffect Channel : es) a -> Eff es a
+runAudio :: (IOE :> es) => Eff (Audio FmodState : es) a -> Eff es a
 runAudio eff = do
   sys <- unsafeEff_ initFmod
   let backend = makeBackendFmod sys

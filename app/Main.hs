@@ -10,23 +10,25 @@ module Main where
 import Effectful
 import Effectful.Dispatch.Static ( unsafeEff_ )
 import Control.Concurrent (threadDelay)
-import Audio ( playSound, stopSound, setVolume, setPanning )
+import Audio 
 import qualified Mock
+import Control.Concurrent
 import qualified SDL.SDL as SDL
 import qualified Fmod.Fmod as Fmod
 import qualified Interface as I
 
 main :: IO ()
-main = runEff $ SDL.runAudio test
+main = runEff $ Fmod.runAudio test
 
-test :: (I.AudioEffect channel :> es) => Eff es ()
+test :: (I.Audio channel :> es) => Eff es ()
 test = do
-  ch0 <- playSound "flim.mp3"
-
-  -- Pan ch1 completely to the left 
-  delaySec 3
-  setPanning ch0 (I.mkPanning (-1.0))
+  sound <- load "flim.mp3"
+  playing <- play sound
+  wait 5 
+  paused <- pause playing
+  wait 5 
+  _ <- resume paused
+  wait 5 
   pure ()
-  where
-    delaySec :: Int -> Eff es ()
-    delaySec s = unsafeEff_ $ threadDelay (s * 1000000)
+  where 
+    wait x = unsafeEff_ $ threadDelay (x * 1000000)

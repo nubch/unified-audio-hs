@@ -62,7 +62,8 @@ library core
     -- other-modules:
 
     build-depends:    base ^>=4.18.3.0,
-                      effectful
+                      effectful,
+                      effectful-core
 
     -- Directories containing source files.
     hs-source-dirs:   src-core/
@@ -129,8 +130,8 @@ executable unified-audio-hs
         base,
         unified-audio-hs:core,
         effectful,
-        effectful-core,
         effectful-plugin,
+        effectful-core,
         unified-audio-hs:sdl-impl,
         unified-audio-hs:fmod-impl
 

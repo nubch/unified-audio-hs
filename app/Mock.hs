@@ -1,40 +1,49 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 
 module Mock
   ( runAudio,
-    Channel,
   )
 where
 
 import Effectful (Eff, IOE, type (:>))
 import Effectful.Dispatch.Static (evalStaticRep)
+import Data.Kind (Type)
 import Interface
   ( AudioBackend (..),
-    AudioEffect,
+    Audio,
     StaticRep (AudioRep),
+    Status (..)
   )
 
-newtype Channel = Channel String
+data MockSound :: Status -> Type where
+  LoadedSound :: String -> MockSound Loaded
+  PlayingSound :: String -> MockSound Playing
+  PausedSound :: String -> MockSound Paused
 
-mockBackend :: AudioBackend Channel
+mockBackend :: AudioBackend MockSound
 mockBackend =
   AudioBackend
-    { playSoundB = \fp -> do
+    { loadA = \fp -> do
         putStrLn $ prefix ++ "Loading sound: " ++ fp
-        pure $ Channel ("Playing " ++ fp),
-      stopSoundB = \(Channel pl) -> do
-        putStrLn $ prefix ++ "Stopping sound:" ++ pl
-        pure (),
-      setVolumeB = \(Channel pl) vol -> do
-        putStrLn $ prefix ++ "Setting volume of " ++ pl ++ " to " ++ show vol,
-      setPanningB = \(Channel pl) pan -> do
-        putStrLn $ prefix ++ "Setting panning of " ++ pl ++ " to " ++ show pan
+        pure $ LoadedSound "-loaded_",
+      playA = \(LoadedSound i) -> do
+        putStrLn $ prefix ++ "Playing " ++ i
+        pure (PlayingSound i),
+      pauseA = \(PlayingSound i) -> do
+        putStrLn $ "paused " ++ i
+        pure (PausedSound i)
+      --setVolumeB = \(Channel pl) vol -> do
+      --  putStrLn $ prefix ++ "Setting volume of " ++ pl ++ " to " ++ show vol,
+      --setPanningB = \(Channel pl) pan -> do
+      --  putStrLn $ prefix ++ "Setting panning of " ++ pl ++ " to " ++ show pan
     }
 
 prefix :: String
 prefix = "[Mock] -> "
 
-runAudio :: (IOE :> es) => Eff (AudioEffect Channel : es) a -> Eff es a
+runAudio :: (IOE :> es) => Eff (Audio MockSound : es) a -> Eff es a
 runAudio = evalStaticRep (AudioRep mockBackend)
