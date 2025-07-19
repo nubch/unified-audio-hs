@@ -15,22 +15,12 @@ import Effectful
 import Effectful.Dispatch.Static
 
 -- SDL Library
-import qualified SDL
 import qualified SDL.Mixer as Mix
 
 -- Interface
 import qualified UnifiedAudio.Effectful as I
 import Control.Monad
 import Data.Kind (Type)
-
-type Channel = Mix.Channel
-
-initSDL :: IO ()
-initSDL = do
-  SDL.initialize [SDL.InitAudio]
-  Mix.openAudio Mix.defaultAudio 4096
-  putStrLn "SDL Init completed."
-  return ()
 
 loadSDL :: FilePath -> IO (SDLSound I.Loaded)
 loadSDL fp = do
@@ -47,28 +37,25 @@ playSDL (LoadedSound loaded) = do
     Nothing      -> error "No available SDL Channel!" -- Maybe handle this more gracefully
 
 resumeSDL :: SDLSound I.Paused -> IO (SDLSound I.Playing)
-resumeSDL (PausedSound playing) = do
-  Mix.resume playing
-  pure $ PlayingSound playing
+resumeSDL (PausedSound playing) =
+  Mix.resume playing >> return (PlayingSound playing)
 
-stopSDL :: Channel -> IO ()
-stopSDL channel = do
-  Mix.halt channel
+stopSDL :: SDLSound I.Playing -> IO (SDLSound I.Stopped)
+stopSDL (PlayingSound channel) = 
+  Mix.halt channel >> return (StoppedSound channel)
 
 pauseSDL :: SDLSound I.Playing -> IO (SDLSound I.Paused)
-pauseSDL (PlayingSound channel) = do
-  Mix.pause channel
-  pure $ PausedSound channel
+pauseSDL (PlayingSound channel) = 
+  Mix.pause channel >> return (PausedSound channel)
 
-setVolumeSDL :: Channel -> I.Volume -> IO ()
-setVolumeSDL playing vol = do 
-  Mix.setVolume (toSDLVolume vol) playing
+setVolumeSDL :: SDLSound I.Playing -> I.Volume -> IO ()
+setVolumeSDL (PlayingSound channel) vol = 
+  Mix.setVolume (toSDLVolume vol) channel
 
-
-setPanningSDL :: Channel -> I.Panning -> IO ()
-setPanningSDL playing pan = do
+setPanningSDL :: SDLSound I.Playing -> I.Panning -> IO ()
+setPanningSDL (PlayingSound channel) pan = do
   let (left, right) = toSDLPanning pan
-  void $ Mix.effectPan playing left right
+  void $ Mix.effectPan channel left right
 
 toSDLVolume :: I.Volume -> Int
 toSDLVolume vol = round (volume * 128)
@@ -81,23 +68,26 @@ toSDLPanning pan =
       right   = round $ 64 * (1 + panning)
   in (left, right)
 
-
 makeBackendSDL :: I.AudioBackend SDLSound
 makeBackendSDL =
   I.AudioBackend
     { I.playA  = playSDL,
       I.loadA  = loadSDL,
       I.pauseA  = pauseSDL,
-      I.resumeA = resumeSDL
-      --setPanningB = setPanningSDL
+      I.resumeA = resumeSDL,
+      I.setPanningA = setPanningSDL,
+      I.setVolumeA = setVolumeSDL,
+      I.stopChannelA = stopSDL
     }
 
 data SDLSound :: I.Status -> Type where
   LoadedSound :: Mix.Chunk -> SDLSound I.Loaded
   PlayingSound :: Mix.Channel -> SDLSound I.Playing
   PausedSound :: Mix.Channel -> SDLSound I.Paused
+  StoppedSound :: Mix.Channel -> SDLSound I.Stopped
 
 runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a
-runAudio eff = do
-  unsafeEff_ initSDL
-  evalStaticRep (I.AudioRep makeBackendSDL) eff
+runAudio eff =
+  withEffToIO SeqUnlift $ \runInIO -> 
+    Mix.withAudio Mix.defaultAudio 4096 $ 
+      runInIO (evalStaticRep (I.AudioRep makeBackendSDL) eff) 

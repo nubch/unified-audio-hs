@@ -43,9 +43,8 @@ setPanningFmod :: FmodState I.Playing -> I.Panning -> IO ()
 setPanningFmod (PlayingSound playing) panning = F.setPanning playing (realToFrac $ I.unPanning panning)
 
 stopChannel :: FmodState I.Playing -> IO (FmodState I.Stopped)
-stopChannel (PlayingSound channel) = do
-  F.stopChannel channel 
-  return $ StoppedSound channel
+stopChannel (PlayingSound channel) = 
+  F.stopChannel channel >> return (StoppedSound channel)
 
 data FmodState :: I.Status -> Type where
   LoadedSound  :: F.Sound -> FmodState I.Loaded

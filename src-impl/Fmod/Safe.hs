@@ -3,7 +3,7 @@ module Fmod.Safe where
 import qualified Fmod.Raw as Raw
 import Fmod.Result
 import Foreign
-    ( Ptr,
+    ( 
       alloca,
       fromBool,
       newForeignPtr_,
@@ -74,12 +74,8 @@ stopChannel :: Channel -> IO ()
 stopChannel (Channel channel) =
   withForeignPtr channel (checkResult <=< Raw.c_FMOD_Channel_Stop)
 
-
 foreign import ccall unsafe "&FMOD_System_Release"
   c_FMOD_System_Release :: FinalizerPtr Raw.FMODSystem
 
 foreign import ccall unsafe "&FMOD_Sound_Release"
   c_FMOD_Sound_Release :: FinalizerPtr Raw.FMODSound
-
---foreign import ccall unsafe "&FMOD_Channel_Stop"
---  c_FMOD_Channel_Stop :: FunPtr (Ptr Raw.FMODChannel -> IO CInt)

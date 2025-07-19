@@ -17,14 +17,13 @@ import qualified Fmod.Backend as Fmod
 import UnifiedAudio.Effectful
 
 main :: IO ()
-main = runEff $ Fmod.runAudio test
+main = runEff $ SDL.runAudio test
 
 test :: (Audio channel :> es) => Eff es ()
 test = do
   sound <- load "flim.mp3"
   sound2 <- load "flim.mp3"
   playing <- play sound
-  playing2 <- play sound2
   wait 3 
   setPanning playing (mkPanning 1)
   wait 2 
