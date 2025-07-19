@@ -4,7 +4,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 
-module Mock
+module UnifiedAudio.Mock
   ( runAudio,
   )
 where
@@ -18,13 +18,14 @@ data MockSound :: Status -> Type where
   LoadedSound :: String -> MockSound Loaded
   PlayingSound :: String -> MockSound Playing
   PausedSound :: String -> MockSound Paused
+  StoppedSound :: String -> MockSound Stopped
 
 mockBackend :: AudioBackend MockSound
 mockBackend =
   AudioBackend
     { loadA = \fp -> do
         putStrLn $ prefix ++ "Loading sound: " ++ fp
-        pure $ LoadedSound "-loaded_",
+        pure $ LoadedSound (fp ++ "- LOADED"),
       playA = \(LoadedSound i) -> do
         putStrLn $ prefix ++ "Playing " ++ i
         pure (PlayingSound i),
@@ -33,11 +34,14 @@ mockBackend =
         pure (PausedSound i),
       resumeA = \(PausedSound i) -> do
         putStrLn $ "resumed" ++ i
-        pure (PlayingSound i)
-      --setVolumeB = \(Channel pl) vol -> do
-      --  putStrLn $ prefix ++ "Setting volume of " ++ pl ++ " to " ++ show vol,
-      --setPanningB = \(Channel pl) pan -> do
-      --  putStrLn $ prefix ++ "Setting panning of " ++ pl ++ " to " ++ show pan
+        pure (PlayingSound i),
+      setVolumeA = \(PlayingSound pl) vol -> do
+        putStrLn $ prefix ++ "Setting volume of " ++ pl ++ " to " ++ show vol,
+      setPanningA = \(PlayingSound pl) pan -> do
+        putStrLn $ prefix ++ "Setting panning of " ++ pl ++ " to " ++ show pan,
+      stopChannelA = \(PlayingSound pl) -> do
+        putStrLn $ prefix ++ "Stopping channel " ++ pl
+        pure (StoppedSound pl)
     }
 
 prefix :: String

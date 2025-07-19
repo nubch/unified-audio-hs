@@ -57,7 +57,8 @@ common warnings
 library core
     import:           warnings
 
-    exposed-modules:  UnifiedAudio.Effectful
+    exposed-modules:  UnifiedAudio.Effectful,
+                      UnifiedAudio.Mock
 
     -- other-modules:
 
@@ -128,8 +129,6 @@ executable unified-audio-hs
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules: Mock
-
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
 

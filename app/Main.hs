@@ -10,14 +10,14 @@ module Main where
 import Effectful
 import Effectful.Dispatch.Static ( unsafeEff_, unsafeEff )
 import Control.Concurrent (threadDelay)
-import qualified Mock
+import qualified UnifiedAudio.Mock as Mock
 import Control.Concurrent
 import qualified SDL.Backend as SDL
 import qualified Fmod.Backend as Fmod
 import UnifiedAudio.Effectful
 
 main :: IO ()
-main = runEff $ SDL.runAudio test
+main = runEff $ Mock.runAudio test
 
 test :: (Audio channel :> es) => Eff es ()
 test = do

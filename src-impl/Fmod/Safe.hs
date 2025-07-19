@@ -27,13 +27,13 @@ version = 0x00020221
 
 withSystem :: (System -> IO a) -> IO a
 withSystem = bracket acquire (\_ -> return ())
-    where
-        acquire = alloca $ \pSystem -> do
-            checkResult =<< Raw.c_FMOD_System_Create pSystem version
-            system <- peek pSystem
-            checkResult =<< Raw.c_FMOD_System_Init system 512 0 nullPtr
-            fp <- newForeignPtr c_FMOD_System_Release system
-            return (System fp)
+  where
+    acquire = alloca $ \pSystem -> do
+      checkResult =<< Raw.c_FMOD_System_Create pSystem version
+      system <- peek pSystem
+      checkResult =<< Raw.c_FMOD_System_Init system 512 0 nullPtr
+      fp <- newForeignPtr c_FMOD_System_Release system
+      return (System fp)
 
 createSound :: System -> FilePath -> IO Sound
 createSound (System sys) path =
