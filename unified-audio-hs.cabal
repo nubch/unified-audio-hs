@@ -44,6 +44,8 @@ library sdl-impl
 
     exposed-modules:  SDL.Backend
 
+    visibility:       public
+
     -- other-modules:
 
     build-depends:    base,
@@ -65,6 +67,8 @@ library fmod-impl
                       Fmod.Result,
                       Fmod.Raw,
                       Fmod.Safe
+    
+    visibility:       public
 
     build-depends:    base, 
                       effectful,
