@@ -32,7 +32,7 @@ library
 
     build-depends:    base ^>=4.18.3.0,
                       effectful,
-                      effectful-core
+                      effectful-core >= 2.0 && <2.3
 
     hs-source-dirs:   src-core/
 
@@ -52,7 +52,8 @@ library sdl-impl
                       unified-audio-hs,
                       sdl2,
                       sdl2-mixer,
-                      effectful
+                      effectful-core >= 2.0 && <2.3
+
 
     -- Directories containing source files.
     hs-source-dirs:   src-impl/
@@ -71,7 +72,7 @@ library fmod-impl
     visibility:       public
 
     build-depends:    base, 
-                      effectful,
+                      effectful-core >= 2.0 && <2.3,
                       unified-audio-hs
 
     -- Directories containing source files.
@@ -105,7 +106,7 @@ executable unified-audio-hs
         unified-audio-hs:fmod-impl,
         effectful,
         effectful-plugin,
-        effectful-core,
+        effectful-core
 
     -- Directories containing source files.
     hs-source-dirs:   app

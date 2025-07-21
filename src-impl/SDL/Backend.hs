@@ -88,6 +88,6 @@ data SDLSound :: I.Status -> Type where
 
 runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a
 runAudio eff =
-  withEffToIO SeqUnlift $ \runInIO -> 
+  withEffToIO $ \runInIO -> 
     Mix.withAudio Mix.defaultAudio 4096 $ 
       runInIO (evalStaticRep (I.AudioRep makeBackendSDL) eff) 
