@@ -30,8 +30,17 @@ foreign import ccall unsafe "FMOD_Channel_SetPaused"
 foreign import ccall unsafe "FMOD_Channel_Stop"
   c_FMOD_Channel_Stop :: Ptr FMODChannel -> IO FMOD_RESULT
 
+foreign import ccall unsafe "FMOD_Channel_SetLoopCount"
+  c_FMOD_Channel_SetLoopCount :: Ptr FMODChannel -> CInt -> IO FMOD_RESULT
+
+foreign import ccall unsafe "FMOD_Channel_SetMode"
+  c_FMOD_Channel_SetMode :: Ptr FMODChannel -> CInt -> IO FMOD_RESULT
+
 foreign import ccall unsafe "FMOD_Channel_SetVolume"
   c_FMOD_Channel_SetVolume :: Ptr FMODChannel -> CFloat -> IO FMOD_RESULT
 
 foreign import ccall unsafe "FMOD_Channel_SetPan"
   c_FMOD_Channel_SetPan :: Ptr FMODChannel -> CFloat -> IO FMOD_RESULT
+
+foreign import ccall unsafe "FMOD_Channel_IsPlaying"
+  c_FMOD_Channel_IsPlaying :: Ptr FMODChannel -> Ptr CBool -> IO FMOD_RESULT

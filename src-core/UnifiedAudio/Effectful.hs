@@ -23,19 +23,24 @@ import Data.Kind (Type)
 
 data Status = Loaded | Playing | Paused | Stopped
 
+data Times = Once | Times Int | Forever
+  deriving (Show, Eq)
+
 --- Effectful
 
 data Audio (s :: Status -> Type) :: Effect
 
 data AudioBackend (s :: Status -> Type) = AudioBackend
   { 
-    loadA :: FilePath -> IO (s Loaded),
-    playA :: s Loaded -> IO (s Playing),
-    pauseA :: s Playing -> IO (s Paused),
-    resumeA :: s Paused -> IO (s Playing),
-    setVolumeA :: s Playing -> Volume -> IO (),
-    setPanningA :: s Playing -> Panning -> IO (),
-    stopChannelA :: s Playing -> IO (s Stopped)
+    loadA        :: FilePath -> IO (s Loaded),
+    playA        :: s Loaded -> Times -> IO (s Playing),
+    pauseA       :: s Playing -> IO (s Paused),
+    resumeA      :: s Paused -> IO (s Playing),
+    setVolumeA   :: s Playing -> Volume -> IO (),
+    setPanningA  :: s Playing -> Panning -> IO (),
+    stopChannelA :: s Playing -> IO (s Stopped),
+    isPlayingA   :: s Playing -> IO Bool,
+    onFinishedA  :: (s Playing -> IO ()) -> s Playing -> IO ()
     --unloadA :: s Loaded -> IO ()
     -- and other operations, like seekA, loopA, or what have you
   }
@@ -62,10 +67,10 @@ loadFile :: Audio s :> es => FilePath -> Eff es (s Loaded)
 loadFile filePath =
   unsafeEff_ (readFile filePath) >>= load
 
-play :: Audio s :> es => s Loaded -> Eff es (s Playing)
-play sound = do
+play :: Audio s :> es => s Loaded -> Times -> Eff es (s Playing)
+play sound times = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.playA sound
+  unsafeEff_ $ backend.playA sound times
 
 pause :: Audio s :> es => s Playing -> Eff es (s Paused)
 pause channel = do
@@ -89,6 +94,16 @@ setPanning :: Audio s :> es => s Playing -> Panning -> Eff es ()
 setPanning channel panning = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.setPanningA channel panning
+
+isPlaying :: Audio s :> es => s Playing -> Eff es Bool
+isPlaying channel = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.isPlayingA channel
+
+onFinished :: Audio s :> es => (s Playing -> IO ()) -> s Playing -> Eff es ()
+onFinished callback channel = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.onFinishedA callback channel
 
 --- Utilities
 

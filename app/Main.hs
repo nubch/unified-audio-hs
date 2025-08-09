@@ -15,29 +15,18 @@ import Control.Concurrent
 import qualified SDL.Backend as SDL
 import qualified Fmod.Backend as Fmod
 import UnifiedAudio.Effectful
+import Fmod.Safe (stopChannel)
 
 main :: IO ()
-main = runEff $ Mock.runAudio test
+main = runEff $ Fmod.runAudio test
 
-test :: (Audio channel :> es) => Eff es ()
+test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
-  sound <- load "flim.mp3"
-  sound2 <- load "flim.mp3"
-  playing <- play sound
-  wait 3 
-  setPanning playing (mkPanning 1)
-  wait 2 
-  setPanning playing (mkPanning 0)
-  wait 2
-  mute playing
-  unsafeEff_ $ putStrLn "muted"
-  wait 2
-  setVolume playing (mkVolume 1.0)
-  unsafeEff_ $ putStrLn "before w"
-  wait 2
-  stopSound playing
-  wait 2 
-  unsafeEff_ $ putStrLn "after w"
+  sound2 <- load "playPiece.wav"
+  playing2 <- play sound2 (Times 4)
+  wait 10000
+  wait 10
   pure ()
-  where 
+  where
     wait x = unsafeEff_ $ threadDelay (x * 1000000)
+

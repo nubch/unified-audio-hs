@@ -1,9 +1,9 @@
 module Fmod.Safe where
 
 import qualified Fmod.Raw as Raw
-import Fmod.Result
+import Fmod.Result ( checkResult )
 import Foreign
-    ( 
+    (
       alloca,
       fromBool,
       newForeignPtr_,
@@ -12,10 +12,10 @@ import Foreign
       newForeignPtr,
       Storable(peek),
       FinalizerPtr,
-      ForeignPtr )
+      ForeignPtr)
 
-import Foreign.C
-import Control.Exception
+import Foreign.C ( CFloat, CInt, CUInt, withCString )
+import Control.Exception ( bracket )
 import Control.Monad ((<=<))
 
 newtype System    = System  (ForeignPtr Raw.FMODSystem)
@@ -24,6 +24,12 @@ newtype Channel   = Channel   (ForeignPtr Raw.FMODChannel)
 
 version :: CUInt
 version = 0x00020221
+
+data LoopMode = LoopOff | LoopNormal
+
+toCuInt :: LoopMode -> CInt
+toCuInt LoopOff   = 0x00000001
+toCuInt LoopNormal = 0x00000002
 
 withSystem :: (System -> IO a) -> IO a
 withSystem = bracket acquire (\_ -> return ())
@@ -73,6 +79,25 @@ setPanning (Channel channel) panning =
 stopChannel :: Channel -> IO ()
 stopChannel (Channel channel) =
   withForeignPtr channel (checkResult <=< Raw.c_FMOD_Channel_Stop)
+
+setLoopCount :: Channel -> Int -> IO ()
+setLoopCount (Channel channel) times =
+  withForeignPtr channel $ \pChannel ->
+    checkResult =<< Raw.c_FMOD_Channel_SetLoopCount pChannel (fromIntegral times) 
+
+setChannelMode :: Channel -> LoopMode -> IO ()
+setChannelMode (Channel channel) mode = 
+  withForeignPtr channel $ \pChannel ->
+    checkResult =<< Raw.c_FMOD_Channel_SetMode pChannel (toCuInt mode)
+
+isPlaying :: Channel -> IO Bool
+isPlaying (Channel channel) =
+  withForeignPtr channel $ \pChannel -> do
+    alloca $ \pResult -> do
+      checkResult =<< Raw.c_FMOD_Channel_IsPlaying pChannel pResult
+      result <- peek pResult
+      return $ toBoolean result
+        where toBoolean = (/= 0)
 
 foreign import ccall unsafe "&FMOD_System_Release"
   c_FMOD_System_Release :: FinalizerPtr Raw.FMODSystem

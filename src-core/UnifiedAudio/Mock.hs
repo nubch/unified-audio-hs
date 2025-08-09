@@ -24,25 +24,33 @@ mockBackend :: AudioBackend MockSound
 mockBackend =
   AudioBackend
     { loadA = \fp -> do
-        putStrLn $ prefix ++ "Loading sound: " ++ fp
+        logMock $ "Loading sound: " ++ fp
         pure $ LoadedSound (fp ++ "- LOADED"),
-      playA = \(LoadedSound i) -> do
-        putStrLn $ prefix ++ "Playing " ++ i
+      playA = \(LoadedSound i) times -> do
+        logMock $ "Playing " ++ i ++ "times: " ++ show times
         pure (PlayingSound i),
       pauseA = \(PlayingSound i) -> do
-        putStrLn $ "paused " ++ i
+        logMock $ "paused " ++ i
         pure (PausedSound i),
       resumeA = \(PausedSound i) -> do
-        putStrLn $ "resumed" ++ i
+        logMock $ "resumed" ++ i
         pure (PlayingSound i),
       setVolumeA = \(PlayingSound pl) vol -> do
-        putStrLn $ prefix ++ "Setting volume of " ++ pl ++ " to " ++ show vol,
+        logMock $ "Setting volume of " ++ pl ++ " to " ++ show vol,
       setPanningA = \(PlayingSound pl) pan -> do
-        putStrLn $ prefix ++ "Setting panning of " ++ pl ++ " to " ++ show pan,
+        logMock $ "Setting panning of " ++ pl ++ " to " ++ show pan,
       stopChannelA = \(PlayingSound pl) -> do
-        putStrLn $ prefix ++ "Stopping channel " ++ pl
-        pure (StoppedSound pl)
+        logMock $ "Stopping channel " ++ pl
+        pure (StoppedSound pl),
+      isPlayingA = \(PlayingSound _) -> pure True, --always true for mock,
+      onFinishedA = \callb pl  -> do
+        logMock "Mock cant detect on finished, calling callback immediately"
+        callb pl
+
     }
+
+logMock :: String -> IO ()
+logMock msg = putStrLn $ prefix ++ msg
 
 prefix :: String
 prefix = "[Mock] -> "
