@@ -31,7 +31,7 @@ data Times = Once | Times Int | Forever
 data Audio (s :: Status -> Type) :: Effect
 
 data AudioBackend (s :: Status -> Type) = AudioBackend
-  { 
+  {
     loadA        :: FilePath -> IO (s Loaded),
     playA        :: s Loaded -> Times -> IO (s Playing),
     pauseA       :: s Playing -> IO (s Paused),
@@ -103,10 +103,12 @@ isPlaying channel = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.isPlayingA channel
 
-onFinished :: Audio s :> es => (s Playing -> IO ()) -> s Playing -> Eff es ()
-onFinished callback channel = do
+onFinished :: (Audio s :> es, IOE :> es) => s Playing -> (s Playing -> Eff es ()) -> Eff es ()
+onFinished channel callback = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.onFinishedA callback channel
+  withUnliftStrategy (ConcUnlift Persistent Unlimited) $
+      withEffToIO $ \toIO ->
+        liftIO $ onFinishedA backend (toIO . callback) channel
 
 --- Utilities
 
@@ -122,4 +124,4 @@ mkVolume x = Volume (clamp x)
   where clamp = max 0.0 . min 1.0
 
 unVolume :: Volume -> Float
-unVolume (Volume v) = v 
+unVolume (Volume v) = v

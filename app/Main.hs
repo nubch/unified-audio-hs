@@ -24,7 +24,7 @@ test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
   sound2 <- load "playPiece.wav"
   playing2 <- play sound2 (Times 4)
-  onFinished (\p -> putStrLn "Sound finished playing") playing2
+  onFinished playing2 (\p -> liftIO $ putStrLn "Sound finished playing") 
   wait 10000
   wait 10
   pure ()
