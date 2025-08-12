@@ -40,7 +40,10 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
     setPanningA  :: s Playing -> Panning -> IO (),
     stopChannelA :: s Playing -> IO (s Stopped),
     isPlayingA   :: s Playing -> IO Bool,
-    onFinishedA  :: (s Playing -> IO ()) -> s Playing -> IO ()
+    onFinishedA  :: (s Playing -> IO ()) -> s Playing -> IO (),
+    muteAllA     :: IO (),
+    unmuteAllA   :: IO ()
+
     --unloadA :: s Loaded -> IO ()
     -- and other operations, like seekA, loopA, or what have you
   }

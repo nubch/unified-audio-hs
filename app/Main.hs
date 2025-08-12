@@ -18,12 +18,13 @@ import UnifiedAudio.Effectful
 import Fmod.Safe (stopChannel)
 
 main :: IO ()
-main = runEff $ Fmod.runAudio test
+main = runEff $ SDL.runAudio test
 
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
   sound2 <- load "playPiece.wav"
   playing2 <- play sound2 (Times 4)
+  onFinished (\p -> putStrLn "Sound finished playing") playing2
   wait 10000
   wait 10
   pure ()
