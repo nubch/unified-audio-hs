@@ -51,9 +51,9 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
 type instance DispatchOf (Audio s) = Static WithSideEffects
 newtype instance StaticRep (Audio s) = AudioRep (AudioBackend s)
 
-newtype Volume = Volume Float deriving Show -- Only values between 0 and 1
+newtype Volume = Volume Float deriving (Show, Eq) -- Only values between 0 and 1
 
-newtype Panning = Panning Float deriving Show
+newtype Panning = Panning Float deriving (Show, Eq)
 
 --- Smart Constructors
 load :: Audio s :> es => FilePath -> Eff es (s Loaded)
