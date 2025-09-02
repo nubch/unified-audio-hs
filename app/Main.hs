@@ -13,9 +13,9 @@ import Control.Concurrent (threadDelay)
 import qualified UnifiedAudio.Mock as Mock
 import Control.Concurrent
 import qualified SDL.Backend as SDL
-import qualified Fmod.Backend as Fmod
+--import qualified Fmod.Backend as Fmod
 import UnifiedAudio.Effectful
-import Fmod.Safe (stopChannel)
+--import Fmod.Safe (stopChannel)
 
 main :: IO ()
 main = runEff $ SDL.runAudio test
@@ -23,10 +23,13 @@ main = runEff $ SDL.runAudio test
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
   sound2 <- load "playPiece.wav"
-  playing2 <- play sound2 (Times 4)
-  onFinished playing2 (\p -> liftIO $ putStrLn "Sound finished playing") 
-  wait 10000
-  wait 10
+  loop <- play sound2 (Times 4)
+  once <- play sound2 Once
+  wait 1
+  fin <- hasFinished loop
+  fin2 <- hasFinished once
+  liftIO $ putStrLn $ "Has finished repeat? " ++ show fin
+  liftIO $ putStrLn $ "Has finished once? " ++ show fin2
   pure ()
   where
     wait x = unsafeEff_ $ threadDelay (x * 1000000)

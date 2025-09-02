@@ -39,8 +39,7 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
     setVolumeA   :: s Playing -> Volume -> IO (),
     setPanningA  :: s Playing -> Panning -> IO (),
     stopChannelA :: s Playing -> IO (s Stopped),
-    isPlayingA   :: s Playing -> IO Bool,
-    onFinishedA  :: (s Playing -> IO ()) -> s Playing -> IO (),
+    hasFinishedA :: s Playing -> IO Bool
   }
 
 type instance DispatchOf (Audio s) = Static WithSideEffects
@@ -93,17 +92,10 @@ setPanning channel panning = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.setPanningA channel panning
 
-isPlaying :: Audio s :> es => s Playing -> Eff es Bool
-isPlaying channel = do
+hasFinished :: Audio s :> es => s Playing -> Eff es Bool
+hasFinished channel = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.isPlayingA channel
-
-onFinished :: (Audio s :> es, IOE :> es) => s Playing -> (s Playing -> Eff es ()) -> Eff es ()
-onFinished channel callback = do
-  AudioRep backend <- getStaticRep
-  withUnliftStrategy (ConcUnlift Persistent Unlimited) $
-      withEffToIO $ \toIO ->
-        liftIO $ onFinishedA backend (toIO . callback) channel
+  unsafeEff_ $ backend.hasFinishedA channel
 
 --- Utilities
 

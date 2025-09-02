@@ -13,6 +13,9 @@ where
 -- Effectful
 import Effectful ( IOE, type (:>), Eff, withEffToIO )
 import Effectful.Dispatch.Static ( evalStaticRep )
+import qualified Data.Map.Strict as Map
+
+import Control.Concurrent.MVar
 
 -- SDL Library
 import qualified SDL.Mixer as Mix
@@ -27,48 +30,64 @@ loadSDL fp = do
   loaded <- Mix.load fp
   pure $ LoadedSound loaded
 
-playSDL :: SDLSound I.Loaded -> I.Times ->  IO (SDLSound I.Playing)
-playSDL (LoadedSound loaded) times = do
-  mChannel <- Mix.getAvailable Mix.DefaultGroup
-  case mChannel of
-    Just channel -> do
-      playing <- Mix.playOn channel sdlTimes loaded
-      pure $ PlayingSound playing
-    Nothing      -> error "No available SDL Channel!" -- Maybe handle this more gracefully
-    where sdlTimes = case times of
-            I.Once -> Mix.Once
-            I.Times n -> fromIntegral n
-            I.Forever -> Mix.Forever
+type FinishMap = MVar (Map.Map Mix.Channel (MVar ()))
+
+initSDLFinishedMap :: IO FinishMap
+initSDLFinishedMap = do 
+  finishMap <- newMVar Map.empty
+  Mix.whenChannelFinished $ \ch ->
+    modifyMVar_ finishMap $ \m ->
+      case Map.lookup ch m of
+        Just done -> do
+          _ <- tryPutMVar done ()          -- fire once, ignore duplicates
+          pure m        -- clean up entry
+        Nothing   -> pure m
+  pure finishMap
+  
+
+playSDL :: FinishMap -> SDLSound I.Loaded -> I.Times -> IO (SDLSound I.Playing)
+playSDL fm (LoadedSound loaded) times = do
+  channel  <- Mix.playOn Mix.AllChannels sdlTimes loaded       
+  done <- newEmptyMVar 
+
+  modifyMVar_ fm $ \m ->
+    pure $ Map.insert channel done m
+
+  pure (PlayingSound channel done)
+  where
+    sdlTimes = case times of
+      I.Once    -> Mix.Once
+      I.Times n -> fromIntegral n
+      I.Forever -> Mix.Forever
 
 resumeSDL :: SDLSound I.Paused -> IO (SDLSound I.Playing)
-resumeSDL (PausedSound playing) =
-  Mix.resume playing >> return (PlayingSound playing)
+resumeSDL (PausedSound channel finished) =
+  Mix.resume channel >> return (PlayingSound channel finished)
 
-stopSDL :: SDLSound I.Playing -> IO (SDLSound I.Stopped)
-stopSDL (PlayingSound channel) =
-  Mix.halt channel >> return (StoppedSound channel)
+stopSDL :: FinishMap -> SDLSound I.Playing -> IO (SDLSound I.Stopped)
+stopSDL fm (PlayingSound channel finished) = do
+  Mix.halt channel
+  modifyMVar_ fm $ \m -> pure (Map.delete channel m)
+  _ <- tryPutMVar finished ()  -- signal finished
+  return (StoppedSound channel)
 
 pauseSDL :: SDLSound I.Playing -> IO (SDLSound I.Paused)
-pauseSDL (PlayingSound channel) =
-  Mix.pause channel >> return (PausedSound channel)
+pauseSDL (PlayingSound channel finished) =
+  Mix.pause channel >> return (PausedSound channel finished)
 
 setVolumeSDL :: SDLSound I.Playing -> I.Volume -> IO ()
-setVolumeSDL (PlayingSound channel) vol =
+setVolumeSDL (PlayingSound channel _) vol =
   Mix.setVolume (toSDLVolume vol) channel
 
 setPanningSDL :: SDLSound I.Playing -> I.Panning -> IO ()
-setPanningSDL (PlayingSound channel) pan = do
+setPanningSDL (PlayingSound channel _) pan = do
   let (left, right) = toSDLPanning pan
   void $ Mix.effectPan channel left right
 
-isPlayingSDL :: SDLSound I.Playing -> IO Bool
-isPlayingSDL (PlayingSound channel) =
-  Mix.playing channel
-
-onFinishedSDL :: (SDLSound I.Playing -> IO ()) -> SDLSound I.Playing -> IO ()
-onFinishedSDL callback pl@(PlayingSound channel) = do
-  Mix.whenChannelFinished targetedCallBack
-    where targetedCallBack ch = when (ch == channel) $ callback pl
+hasFinishedSDL :: SDLSound I.Playing -> IO Bool
+hasFinishedSDL (PlayingSound _ finished) = do 
+  fin <- isEmptyMVar finished
+  pure $ not fin
 
 toSDLVolume :: I.Volume -> Int
 toSDLVolume vol = round (volume * 128)
@@ -81,28 +100,29 @@ toSDLPanning pan =
       right   = round $ 64 * (1 + panning)
   in (left, right)
 
-makeBackendSDL :: I.AudioBackend SDLSound
-makeBackendSDL =
+
+makeBackendSDL :: FinishMap -> I.AudioBackend SDLSound
+makeBackendSDL fm =
   I.AudioBackend
-    { I.playA  = playSDL,
+    { I.playA  = playSDL fm,
+      I.stopChannelA = stopSDL fm,
       I.loadA  = loadSDL,
       I.pauseA  = pauseSDL,
       I.resumeA = resumeSDL,
       I.setPanningA = setPanningSDL,
       I.setVolumeA = setVolumeSDL,
-      I.stopChannelA = stopSDL,
-      I.isPlayingA = isPlayingSDL,
-      I.onFinishedA = onFinishedSDL
+      I.hasFinishedA = hasFinishedSDL
     }
 
 data SDLSound :: I.Status -> Type where
   LoadedSound :: Mix.Chunk -> SDLSound I.Loaded
-  PlayingSound :: Mix.Channel -> SDLSound I.Playing
-  PausedSound :: Mix.Channel -> SDLSound I.Paused
+  PlayingSound :: Mix.Channel -> MVar () -> SDLSound I.Playing
+  PausedSound :: Mix.Channel -> MVar () -> SDLSound I.Paused
   StoppedSound :: Mix.Channel -> SDLSound I.Stopped
 
 runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a
 runAudio eff =
   withEffToIO $ \runInIO ->
-    Mix.withAudio Mix.defaultAudio 4096 $
-      runInIO (evalStaticRep (I.AudioRep makeBackendSDL) eff)
+    Mix.withAudio Mix.defaultAudio 4096 $ do
+      finishMap <- initSDLFinishedMap
+      runInIO (evalStaticRep (I.AudioRep (makeBackendSDL finishMap)) eff)

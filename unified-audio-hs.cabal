@@ -52,28 +52,9 @@ library sdl-impl
                       unified-audio-hs,
                       sdl2,
                       sdl2-mixer,
-                      effectful-core >= 2.0 && <2.3
-
-
-    -- Directories containing source files.
-    hs-source-dirs:   src-impl/
-
-    -- Base language which the package is written in.
-    default-language: Haskell2010
-
-library fmod-impl
-    import:           warnings
-
-    exposed-modules:  Fmod.Backend,
-                      Fmod.Result,
-                      Fmod.Raw,
-                      Fmod.Safe
-    
-    visibility:       public
-
-    build-depends:    base, 
                       effectful-core >= 2.0 && <2.3,
-                      unified-audio-hs
+                      containers
+
 
     -- Directories containing source files.
     hs-source-dirs:   src-impl/
@@ -81,9 +62,29 @@ library fmod-impl
     -- Base language which the package is written in.
     default-language: Haskell2010
 
-    extra-lib-dirs:    /home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
-    extra-libraries:   fmod
-    ghc-options:       -optl-Wl,-rpath=/home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
+--library fmod-impl
+    --import:           warnings
+
+    --exposed-modules:  Fmod.Backend,
+                      --Fmod.Result,
+                      --Fmod.Raw,
+                      --Fmod.Safe
+    
+    --visibility:       public
+
+    --build-depends:    base, 
+                      --effectful-core >= 2.0 && <2.3,
+                      --unified-audio-hs
+
+    ---- Directories containing source files.
+    --hs-source-dirs:   src-impl/
+
+    ---- Base language which the package is written in.
+    --default-language: Haskell2010
+
+    --extra-lib-dirs:    /home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
+    --extra-libraries:   fmod
+    --ghc-options:       -optl-Wl,-rpath=/home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
 
 
 executable unified-audio-hs
@@ -103,7 +104,7 @@ executable unified-audio-hs
         base,
         unified-audio-hs,
         unified-audio-hs:sdl-impl,
-        unified-audio-hs:fmod-impl,
+        --unified-audio-hs:fmod-impl,
         effectful,
         effectful-plugin,
         effectful-core

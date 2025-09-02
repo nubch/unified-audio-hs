@@ -42,11 +42,9 @@ mockBackend =
       stopChannelA = \(PlayingSound pl) -> do
         logMock $ "Stopping channel " ++ pl
         pure (StoppedSound pl),
-      isPlayingA = \(PlayingSound _) -> pure True, --always true for mock,
-      onFinishedA = \callb pl  -> do
-        logMock "Mock cant detect on finished, calling callback immediately"
-        callb pl
-
+      hasFinishedA = \(PlayingSound pl) -> do
+        logMock $ "Checking if " ++ pl ++ " has finished"
+        pure False
     }
 
 logMock :: String -> IO ()
