@@ -13,12 +13,12 @@ import Control.Concurrent (threadDelay)
 import qualified UnifiedAudio.Mock as Mock
 import Control.Concurrent
 import qualified SDL.Backend as SDL
---import qualified Fmod.Backend as Fmod
+import qualified Fmod.Backend as Fmod
 import UnifiedAudio.Effectful
 --import Fmod.Safe (stopChannel)
 
 main :: IO ()
-main = runEff $ SDL.runAudio test
+main = runEff $ Fmod.runAudio test
 
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
@@ -26,7 +26,7 @@ test = do
   music <- load "flim.mp3"
   once <- play sound2 Once
   mus <- play music Once
-  wait 1
+  wait 10
   fin <- hasFinished once
   fin2 <- hasFinished mus
   liftIO $ putStrLn $ "Has finished repeat? " ++ show fin

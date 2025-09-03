@@ -114,9 +114,9 @@ makeBackendSDL fm =
     }
 
 data SDLSound :: I.Status -> Type where
-  LoadedSound :: Mix.Chunk -> SDLSound I.Loaded
+  LoadedSound  :: Mix.Chunk -> SDLSound I.Loaded
   PlayingSound :: Mix.Channel -> MVar () -> SDLSound I.Playing
-  PausedSound :: Mix.Channel -> MVar () -> SDLSound I.Paused
+  PausedSound  :: Mix.Channel -> MVar () -> SDLSound I.Paused
   StoppedSound :: Mix.Channel -> SDLSound I.Stopped
 
 runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a

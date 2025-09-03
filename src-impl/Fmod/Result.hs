@@ -1,6 +1,6 @@
 
 module Fmod.Result
-  ( FmodResult
+  ( FmodResult(..)
   , resultFromCInt
   , checkResult
   ) where

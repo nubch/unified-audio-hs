@@ -11,82 +11,120 @@ module Fmod.Backend (runAudio) where
 
 -- Effectful
 import Data.Kind (Type)
-import Effectful (Eff, IOE, type (:>))
+import Foreign ( FunPtr, freeHaskellFunPtr)
+import Effectful (Eff, IOE, type (:>), withEffToIO)
 import Effectful.Dispatch.Static
-  ( evalStaticRep,
-    unsafeEff_,
+  ( evalStaticRep, unsafeEff_
   )
 
 -- Interface
 import qualified UnifiedAudio.Effectful as I
-import qualified Fmod.Safe as F
+import qualified Fmod.Safe as Safe
+import qualified Data.Map.Strict as Map
+
+import Control.Exception (bracket)
+import Control.Concurrent.MVar
 import Fmod.Safe (setLoopCount)
 
-loadFmod :: F.System -> FilePath -> IO (FmodState I.Loaded)
-loadFmod system path = LoadedSound <$> F.createSound system path
+data EnvFMOD = EnvFMOD
+  { system    :: Safe.System
+  , finishMap :: Safe.FinishMap
+  , callback  :: FunPtr Safe.ChannelCB
+  }
 
-playFmod :: F.System -> FmodState I.Loaded -> I.Times -> IO (FmodState I.Playing)
-playFmod system (LoadedSound sound) times = do
-  channel <- F.playSound system sound
-  paused <- pauseFmod (PlayingSound channel)
+loadFmod :: EnvFMOD -> FilePath -> IO (FmodState I.Loaded)
+loadFmod env path = LoadedSound <$> Safe.createSound env.system path
+
+playFmod :: EnvFMOD -> FmodState I.Loaded -> I.Times -> IO (FmodState I.Playing)
+playFmod env (LoadedSound sound) times = do
+  channel <- Safe.playSound env.system sound
+  finished <- newEmptyMVar
+  Safe.setChannelCallback channel env.callback
+  putStrLn "Set callback on channel"
+  Safe.withChannelPtr channel $ \pCh ->
+    modifyMVar_ env.finishMap (pure . Map.insert pCh finished)
+  paused <- pauseFmod (PlayingSound channel finished)
+  putStrLn "Paused immediately after play"
   applyTimes times paused
-  resumeFmod paused
+  res <- resumeFmod paused
+  putStrLn "Resumed playback"
+  pure res
 
 applyTimes :: I.Times -> FmodState I.Paused -> IO ()
-applyTimes t (PausedSound ch) = case t of
+applyTimes t (PausedSound ch _) = case t of
   I.Once -> do
-    F.setChannelMode ch F.LoopOff
+    Safe.setChannelMode ch Safe.LoopOff
     setLoopCount ch 0
   I.Times n -> do
-    F.setChannelMode ch F.LoopNormal
+    Safe.setChannelMode ch Safe.LoopNormal
     setLoopCount ch (n - 1)
   I.Forever -> do
-    F.setChannelMode ch F.LoopNormal
+    Safe.setChannelMode ch Safe.LoopNormal
     setLoopCount ch (-1)
 
-setPausedFmod :: Bool -> F.Channel -> IO F.Channel
-setPausedFmod paused channel = F.setPaused paused channel >> return channel
+setPausedFmod :: Bool -> Safe.Channel -> IO Safe.Channel
+setPausedFmod paused channel =
+   Safe.setPaused paused channel >> return channel
 
 pauseFmod :: FmodState I.Playing -> IO (FmodState I.Paused)
-pauseFmod (PlayingSound channel) = PausedSound <$> setPausedFmod True channel
+pauseFmod (PlayingSound channel finished) = do
+  ch <- setPausedFmod True channel
+  pure (PausedSound ch finished)
 
 resumeFmod :: FmodState I.Paused -> IO (FmodState I.Playing)
-resumeFmod (PausedSound channel) = PlayingSound <$> setPausedFmod False channel
+resumeFmod (PausedSound channel finished) = do
+  ch <- setPausedFmod False channel
+  pure (PlayingSound ch finished)
 
 setVolumeFmod :: FmodState I.Playing -> I.Volume -> IO ()
-setVolumeFmod (PlayingSound playing) volume = F.setVolume playing (realToFrac $ I.unVolume volume)
+setVolumeFmod (PlayingSound playing _) volume = Safe.setVolume playing (realToFrac $ I.unVolume volume)
 
 setPanningFmod :: FmodState I.Playing -> I.Panning -> IO ()
-setPanningFmod (PlayingSound playing) panning = F.setPanning playing (realToFrac $ I.unPanning panning)
+setPanningFmod (PlayingSound playing _) panning = Safe.setPanning playing (realToFrac $ I.unPanning panning)
 
-stopChannelFmod :: FmodState I.Playing -> IO (FmodState I.Stopped)
-stopChannelFmod (PlayingSound channel) =
-  F.stopChannel channel >> return (StoppedSound channel)
+stopChannelFmod :: EnvFMOD -> FmodState I.Playing -> IO (FmodState I.Stopped)
+stopChannelFmod env (PlayingSound ch done) = do
+  Safe.withChannelPtr ch $ \pCh ->
+    modifyMVar_ env.finishMap (pure . Map.delete pCh)
+  _ <- tryPutMVar done ()
+  Safe.stopChannel ch
+  pure (StoppedSound ch)
 
-isPlayingFmod :: FmodState I.Playing -> IO Bool
-isPlayingFmod (PlayingSound channel) = F.isPlaying channel
+hasFinishedFmod :: FmodState I.Playing -> IO Bool
+hasFinishedFmod (PlayingSound _ finished) = do
+  fin <- isEmptyMVar finished
+  pure $ not fin
 
 data FmodState :: I.Status -> Type where
-  LoadedSound  :: F.Sound -> FmodState I.Loaded
-  PlayingSound :: F.Channel -> FmodState I.Playing
-  PausedSound  :: F.Channel -> FmodState I.Paused
-  StoppedSound :: F.Channel -> FmodState I.Stopped
+  LoadedSound  :: Safe.Sound -> FmodState I.Loaded
+  PlayingSound :: Safe.Channel -> MVar () -> FmodState I.Playing
+  PausedSound  :: Safe.Channel -> MVar () -> FmodState I.Paused
+  StoppedSound :: Safe.Channel -> FmodState I.Stopped
 
-makeBackendFmod :: F.System -> I.AudioBackend FmodState
-makeBackendFmod sys =
+makeBackendFmod :: EnvFMOD -> I.AudioBackend FmodState
+makeBackendFmod env =
   I.AudioBackend
-    { I.playA        = playFmod sys,
-      I.loadA        = loadFmod sys,
+    { I.playA        = playFmod env,
+      I.loadA        = loadFmod env,
       I.pauseA       = pauseFmod,
       I.resumeA      = resumeFmod,
       I.setVolumeA   = setVolumeFmod,
       I.setPanningA  = setPanningFmod,
-      I.stopChannelA = stopChannelFmod,
-      I.isPlayingA   = isPlayingFmod
-
+      I.stopChannelA = stopChannelFmod env,
+      I.hasFinishedA = hasFinishedFmod
     }
 
 runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a
-runAudio eff = unsafeEff_ (F.withSystem \sys -> do
-    let backend = makeBackendFmod sys
-    return $ evalStaticRep (I.AudioRep backend) eff) >>= id
+runAudio eff =
+  withEffToIO \runInIO ->
+    -- keep callback alive for entire FMOD session
+    bracket Safe.setupFMODFinished (\(_, cb) -> freeHaskellFunPtr cb) \(finMap, cb) ->
+      Safe.withSystem \sys -> do
+        let env     = EnvFMOD sys finMap cb
+            backend = makeBackendFmod env
+        result <- runInIO (evalStaticRep (I.AudioRep backend) eff)
+
+        putStrLn "draining active channels"
+        -- IMPORTANT: stop any remaining channels so release won't block
+        Safe.drainActive finMap
+        pure result
