@@ -58,8 +58,7 @@ setupFMODFinished = do
   finishMap <- newMVar Map.empty
   putStrLn "Created finish map"
   callback  <- mkChannelCallback $ \channelControl _controlType callbackType _ _-> do
-    putStrLn "Je suis finished"  -- FMOD_CHANNEL_CALLBACKTYPE_END
-    when (callbackType /= 0) $ do
+    when (callbackType == 0) $ do
       putStrLn "Je suis finished"  -- FMOD_CHANNEL_CALLBACKTYPE_END
       let pChannel = castPtr channelControl :: Ptr Raw.FMODChannel
       modifyMVar_ finishMap $ \finMap ->
