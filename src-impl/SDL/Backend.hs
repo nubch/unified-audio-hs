@@ -22,7 +22,7 @@ import qualified SDL.Mixer as Mix
 
 -- Interface
 import qualified UnifiedAudio.Effectful as I
-import Control.Monad ( when, void )
+import Control.Monad ( void )
 import Data.Kind (Type)
 
 loadSDL :: FilePath -> IO (SDLSound I.Loaded)
@@ -39,8 +39,8 @@ initSDLFinishedMap = do
     modifyMVar_ finishMap $ \m ->
       case Map.lookup ch m of
         Just done -> do
-          _ <- tryPutMVar done ()          -- fire once, ignore duplicates
-          pure m        -- clean up entry
+          _ <- tryPutMVar done ()
+          pure (Map.delete ch m)
         Nothing   -> pure m
   pure finishMap
   
@@ -68,7 +68,7 @@ stopSDL :: FinishMap -> SDLSound I.Playing -> IO (SDLSound I.Stopped)
 stopSDL fm (PlayingSound channel finished) = do
   Mix.halt channel
   modifyMVar_ fm $ \m -> pure (Map.delete channel m)
-  _ <- tryPutMVar finished ()  -- signal finished
+  _ <- tryPutMVar finished ()
   return (StoppedSound channel)
 
 pauseSDL :: SDLSound I.Playing -> IO (SDLSound I.Paused)
@@ -99,7 +99,6 @@ toSDLPanning pan =
       left    = round $ 64 * (1 - panning)
       right   = round $ 64 * (1 + panning)
   in (left, right)
-
 
 makeBackendSDL :: FinishMap -> I.AudioBackend SDLSound
 makeBackendSDL fm =

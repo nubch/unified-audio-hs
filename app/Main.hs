@@ -23,11 +23,12 @@ main = runEff $ SDL.runAudio test
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
   sound2 <- load "playPiece.wav"
-  loop <- play sound2 (Times 4)
+  music <- load "flim.mp3"
   once <- play sound2 Once
+  mus <- play music Once
   wait 1
-  fin <- hasFinished loop
-  fin2 <- hasFinished once
+  fin <- hasFinished once
+  fin2 <- hasFinished mus
   liftIO $ putStrLn $ "Has finished repeat? " ++ show fin
   liftIO $ putStrLn $ "Has finished once? " ++ show fin2
   pure ()
