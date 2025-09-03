@@ -32,14 +32,15 @@ data Audio (s :: Status -> Type) :: Effect
 
 data AudioBackend (s :: Status -> Type) = AudioBackend
   {
-    loadA        :: FilePath -> IO (s Loaded),
-    playA        :: s Loaded -> Times -> IO (s Playing),
-    pauseA       :: s Playing -> IO (s Paused),
-    resumeA      :: s Paused -> IO (s Playing),
-    setVolumeA   :: s Playing -> Volume -> IO (),
-    setPanningA  :: s Playing -> Panning -> IO (),
-    stopChannelA :: s Playing -> IO (s Stopped),
-    hasFinishedA :: s Playing -> IO Bool
+    loadA         :: FilePath -> IO (s Loaded),
+    playA         :: s Loaded -> Times -> IO (s Playing),
+    pauseA        :: s Playing -> IO (s Paused),
+    resumeA       :: s Paused -> IO (s Playing),
+    setVolumeA    :: s Playing -> Volume -> IO (),
+    setPanningA   :: s Playing -> Panning -> IO (),
+    stopChannelA  :: s Playing -> IO (s Stopped),
+    hasFinishedA  :: s Playing -> IO Bool,
+    updateSystemA :: s Loaded -> IO ()
   }
 
 type instance DispatchOf (Audio s) = Static WithSideEffects
@@ -96,6 +97,11 @@ hasFinished :: Audio s :> es => s Playing -> Eff es Bool
 hasFinished channel = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.hasFinishedA channel
+
+updateSystem :: Audio s :> es => s Loaded -> Eff es ()
+updateSystem loaded = do 
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.updateSystemA loaded -- Placeholder for backends that need updating
 
 --- Utilities
 

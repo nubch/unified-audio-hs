@@ -26,11 +26,16 @@ test = do
   music <- load "flim.mp3"
   once <- play sound2 Once
   mus <- play music Once
-  wait 10
+  updateSystem music
+  wait 2
+  updateSystem music
+  wait 5
+  updateSystem music
   fin <- hasFinished once
   fin2 <- hasFinished mus
   liftIO $ putStrLn $ "Has finished repeat? " ++ show fin
   liftIO $ putStrLn $ "Has finished once? " ++ show fin2
+  updateSystem music
   pure ()
   where
     wait x = unsafeEff_ $ threadDelay (x * 1000000)

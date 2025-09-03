@@ -35,6 +35,9 @@ data EnvFMOD = EnvFMOD
 loadFmod :: EnvFMOD -> FilePath -> IO (FmodState I.Loaded)
 loadFmod env path = LoadedSound <$> Safe.createSound env.system path
 
+updateFmod :: EnvFMOD -> FmodState I.Loaded -> IO ()
+updateFmod env (LoadedSound sound) = Safe.systemUpdate env.system sound
+
 playFmod :: EnvFMOD -> FmodState I.Loaded -> I.Times -> IO (FmodState I.Playing)
 playFmod env (LoadedSound sound) times = do
   channel <- Safe.playSound env.system sound
@@ -111,7 +114,8 @@ makeBackendFmod env =
       I.setVolumeA   = setVolumeFmod,
       I.setPanningA  = setPanningFmod,
       I.stopChannelA = stopChannelFmod env,
-      I.hasFinishedA = hasFinishedFmod
+      I.hasFinishedA = hasFinishedFmod,
+      I.updateSystemA = updateFmod env
     }
 
 runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a
@@ -126,5 +130,5 @@ runAudio eff =
 
         putStrLn "draining active channels"
         -- IMPORTANT: stop any remaining channels so release won't block
-        Safe.drainActive finMap
+        --Safe.drainActive finMap
         pure result

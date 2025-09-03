@@ -40,13 +40,13 @@ toCuInt :: LoopMode -> CInt
 toCuInt LoopOff   = 0x00000001
 toCuInt LoopNormal = 0x00000002
 
-type ChannelCB = 
+type ChannelCB =
   Ptr () -> -- channel that triggers (PTR () here so we dont have to define channelControl)
   CInt   -> -- callback type (see FMOD_CHANNEL_CALLBACKTYPE)
   CInt   -> -- command data (callback specific)
   Ptr () ->
   Ptr () ->
-  IO CInt 
+  IO CInt
 
 foreign import ccall "wrapper"
   mkChannelCallback :: ChannelCB -> IO (FunPtr ChannelCB)
@@ -59,7 +59,7 @@ setupFMODFinished = do
   putStrLn "Created finish map"
   callback  <- mkChannelCallback $ \channelControl _controlType callbackType _ _-> do
     putStrLn "Je suis finished"  -- FMOD_CHANNEL_CALLBACKTYPE_END
-    when (callbackType /= 0) $ do 
+    when (callbackType /= 0) $ do
       putStrLn "Je suis finished"  -- FMOD_CHANNEL_CALLBACKTYPE_END
       let pChannel = castPtr channelControl :: Ptr Raw.FMODChannel
       modifyMVar_ finishMap $ \finMap ->
@@ -130,6 +130,10 @@ setVolume (Channel channel) volume =
   withForeignPtr channel $ \pChannel ->
     checkResult =<< Raw.c_FMOD_Channel_SetVolume pChannel volume
 
+systemUpdate :: System -> Sound -> IO ()
+systemUpdate (System sys) (Sound _)=
+  withForeignPtr sys (checkResult <=< Raw.c_FMOD_System_Update)
+
 setPanning :: Channel -> CFloat -> IO ()
 setPanning (Channel channel) panning =
   withForeignPtr channel $ \pChannel ->
@@ -142,10 +146,10 @@ stopChannel (Channel channel) =
 setLoopCount :: Channel -> Int -> IO ()
 setLoopCount (Channel channel) times =
   withForeignPtr channel $ \pChannel ->
-    checkResult =<< Raw.c_FMOD_Channel_SetLoopCount pChannel (fromIntegral times) 
+    checkResult =<< Raw.c_FMOD_Channel_SetLoopCount pChannel (fromIntegral times)
 
 setChannelMode :: Channel -> LoopMode -> IO ()
-setChannelMode (Channel channel) mode = 
+setChannelMode (Channel channel) mode =
   withForeignPtr channel $ \pChannel ->
     checkResult =<< Raw.c_FMOD_Channel_SetMode pChannel (toCuInt mode)
 

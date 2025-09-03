@@ -25,6 +25,9 @@ foreign import ccall safe "FMOD_System_CreateSound"
 foreign import ccall safe "FMOD_System_PlaySound"
   c_FMOD_System_PlaySound :: Ptr FMODSystem -> Ptr FMODSound -> Ptr () -> CInt -> Ptr (Ptr FMODChannel) -> IO FMOD_RESULT
 
+foreign import ccall safe "FMOD_System_Update"
+  c_FMOD_System_Update :: Ptr FMODSystem -> IO FMOD_RESULT
+
 foreign import ccall safe "FMOD_Channel_SetPaused"
   c_FMOD_Channel_SetPaused :: Ptr FMODChannel -> CBool -> IO FMOD_RESULT
 
@@ -45,3 +48,4 @@ foreign import ccall safe"FMOD_Channel_SetPan"
 
 foreign import ccall safe"FMOD_Channel_IsPlaying"
   c_FMOD_Channel_IsPlaying :: Ptr FMODChannel -> Ptr CBool -> IO FMOD_RESULT
+
