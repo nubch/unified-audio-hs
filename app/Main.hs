@@ -18,7 +18,7 @@ import UnifiedAudio.Effectful
 --import Fmod.Safe (stopChannel)
 
 main :: IO ()
-main = runEff $ Fmod.runAudio test
+main = runEff $ SDL.runAudio test
 
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
@@ -26,16 +26,12 @@ test = do
   music <- load "flim.mp3"
   once <- play sound2 Once
   mus <- play music Once
-  updateSystem music
   wait 2
-  updateSystem music
   wait 5
-  updateSystem music
   fin <- hasFinished once
   fin2 <- hasFinished mus
   liftIO $ putStrLn $ "Has finished repeat? " ++ show fin
   liftIO $ putStrLn $ "Has finished once? " ++ show fin2
-  updateSystem music
   pure ()
   where
     wait x = unsafeEff_ $ threadDelay (x * 1000000)

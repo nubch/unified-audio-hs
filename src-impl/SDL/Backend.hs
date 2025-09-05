@@ -43,7 +43,6 @@ initSDLFinishedMap = do
           pure (Map.delete ch m)
         Nothing   -> pure m
   pure finishMap
-  
 
 playSDL :: FinishMap -> SDLSound I.Loaded -> I.Times -> IO (SDLSound I.Playing)
 playSDL fm (LoadedSound loaded) times = do

@@ -114,8 +114,7 @@ makeBackendFmod env =
       I.setVolumeA   = setVolumeFmod,
       I.setPanningA  = setPanningFmod,
       I.stopChannelA = stopChannelFmod env,
-      I.hasFinishedA = hasFinishedFmod,
-      I.updateSystemA = updateFmod env
+      I.hasFinishedA = hasFinishedFmod
     }
 
 runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a
@@ -126,9 +125,4 @@ runAudio eff =
       Safe.withSystem \sys -> do
         let env     = EnvFMOD sys finMap cb
             backend = makeBackendFmod env
-        result <- runInIO (evalStaticRep (I.AudioRep backend) eff)
-
-        putStrLn "draining active channels"
-        -- IMPORTANT: stop any remaining channels so release won't block
-        --Safe.drainActive finMap
-        pure result
+        runInIO (evalStaticRep (I.AudioRep backend) eff)
