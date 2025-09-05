@@ -56,7 +56,6 @@ type FinishMap = MVar (Map.Map (Ptr Raw.FMODChannel) (MVar ()))
 setupFMODFinished :: IO (FinishMap, FunPtr ChannelCB)
 setupFMODFinished = do
   finishMap <- newMVar Map.empty
-  putStrLn "Created finish map"
   callback  <- mkChannelCallback $ \channelControl _controlType callbackType _ _-> do
     when (callbackType == 0) $ do
       putStrLn "Je suis finished"  -- FMOD_CHANNEL_CALLBACKTYPE_END
@@ -97,7 +96,8 @@ withSystem = bracket acquire release
       checkResult =<< Raw.c_FMOD_System_Init system 512 0 nullPtr
       fp <- newForeignPtr c_FMOD_System_Release system
       pure (System fp)
-    release (System fp) = finalizeForeignPtr fp   -- << run Release deterministically
+    release (System fp) = do 
+      finalizeForeignPtr fp   -- << run Release deterministically
 
 createSound :: System -> FilePath -> IO Sound
 createSound (System sys) path =
@@ -151,15 +151,6 @@ setChannelMode :: Channel -> LoopMode -> IO ()
 setChannelMode (Channel channel) mode =
   withForeignPtr channel $ \pChannel ->
     checkResult =<< Raw.c_FMOD_Channel_SetMode pChannel (toCuInt mode)
-
-isPlaying :: Channel -> IO Bool
-isPlaying (Channel channel) =
-  withForeignPtr channel $ \pChannel -> do
-    alloca $ \pResult -> do
-      checkResult =<< Raw.c_FMOD_Channel_IsPlaying pChannel pResult
-      result <- peek pResult
-      return $ toBoolean result
-        where toBoolean = (/= 0)
 
 withChannelPtr :: Channel -> (Ptr Raw.FMODChannel -> IO a) -> IO a
 withChannelPtr (Channel fp) = withForeignPtr fp

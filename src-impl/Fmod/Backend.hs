@@ -26,6 +26,9 @@ import Control.Exception (bracket)
 import Control.Concurrent.MVar
 import Fmod.Safe (setLoopCount)
 
+import Control.Exception (mask, finally)
+import System.IO (hFlush, stdout)
+
 data EnvFMOD = EnvFMOD
   { system    :: Safe.System
   , finishMap :: Safe.FinishMap
@@ -43,15 +46,11 @@ playFmod env (LoadedSound sound) times = do
   channel <- Safe.playSound env.system sound
   finished <- newEmptyMVar
   Safe.setChannelCallback channel env.callback
-  putStrLn "Set callback on channel"
   Safe.withChannelPtr channel $ \pCh ->
     modifyMVar_ env.finishMap (pure . Map.insert pCh finished)
   paused <- pauseFmod (PlayingSound channel finished)
-  putStrLn "Paused immediately after play"
   applyTimes times paused
-  res <- resumeFmod paused
-  putStrLn "Resumed playback"
-  pure res
+  resumeFmod paused
 
 applyTimes :: I.Times -> FmodState I.Paused -> IO ()
 applyTimes t (PausedSound ch _) = case t of
@@ -117,12 +116,24 @@ makeBackendFmod env =
       I.hasFinishedA = hasFinishedFmod
     }
 
-runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a
+runAudio
+  :: (IOE :> es)
+  => Eff (I.Audio FmodState : es) a
+  -> Eff es a
 runAudio eff =
-  withEffToIO \runInIO ->
-    -- keep callback alive for entire FMOD session
-    bracket Safe.setupFMODFinished (\(_, cb) -> freeHaskellFunPtr cb) \(finMap, cb) ->
-      Safe.withSystem \sys -> do
-        let env     = EnvFMOD sys finMap cb
-            backend = makeBackendFmod env
-        runInIO (evalStaticRep (I.AudioRep backend) eff)
+  withEffToIO $ \runInIO ->
+    -- All FMOD lifetime in one scope:
+    Safe.withSystem $ \sys -> mask $ \restore -> do
+      -- allocate finished-callback, keep alive for whole session
+      (finMap, cb) <- Safe.setupFMODFinished
+
+      let env     = EnvFMOD sys finMap cb
+          backend = makeBackendFmod env
+          runApp  = runInIO (evalStaticRep (I.AudioRep backend) eff)
+
+      -- run the app; on any exit, detach+free then log
+      restore runApp `finally` do
+        -- IMPORTANT: detach callbacks BEFORE closing/releasing FMOD
+        Safe.drainActive env.finishMap  -- setCallback NULL on any tracked channels
+        hFlush stdout
+        freeHaskellFunPtr cb
