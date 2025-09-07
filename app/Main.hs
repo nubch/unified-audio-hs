@@ -1,7 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
 
@@ -9,14 +8,8 @@ module Main where
 
 import Effectful
 import Effectful.Dispatch.Static ( unsafeEff_, unsafeEff )
-import Control.Concurrent (threadDelay)
-import qualified UnifiedAudio.Mock as Mock
 import Control.Concurrent
-import qualified SDL.Backend as SDL
-import qualified Fmod.Backend as Fmod
 import UnifiedAudio.Effectful
-import Fmod.Safe (stopChannel)
-import Text.ParserCombinators.ReadPrec (lift)
 --import Fmod.Safe (stopChannel)
 
 main :: IO ()
