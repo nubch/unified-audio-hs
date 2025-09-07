@@ -4,6 +4,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use join" #-}
 
@@ -28,6 +29,7 @@ import Fmod.Safe (setLoopCount)
 
 import Control.Exception (mask, finally)
 import System.IO (hFlush, stdout)
+import Foreign.C (CFloat(CFloat))
 
 data EnvFMOD = EnvFMOD
   { system    :: Safe.System
@@ -78,19 +80,34 @@ resumeFmod (PausedSound channel finished) = do
   ch <- setPausedFmod False channel
   pure (PlayingSound ch finished)
 
-setVolumeFmod :: FmodState I.Playing -> I.Volume -> IO ()
-setVolumeFmod (PlayingSound playing _) volume = Safe.setVolume playing (realToFrac $ I.unVolume volume)
+setVolumeFmod :: forall adj. I.Adjustable adj => FmodState adj -> I.Volume -> IO ()
+setVolumeFmod adjustable volume =
+  case adjustable of
+    (PlayingSound playing _) -> setVolume playing volume
+    (PausedSound  playing _) -> setVolume playing volume
+  where
+    setVolume ch vol = Safe.setVolume ch (realToFrac $ I.unVolume vol)
 
-setPanningFmod :: FmodState I.Playing -> I.Panning -> IO ()
-setPanningFmod (PlayingSound playing _) panning = Safe.setPanning playing (realToFrac $ I.unPanning panning)
+setPanningFmod :: forall adj. I.Adjustable adj => FmodState adj -> I.Panning -> IO ()
+setPanningFmod adjustable panning = 
+  case adjustable of
+    (PlayingSound playing _) -> setPanning playing panning
+    (PausedSound  playing _) -> setPanning playing panning
+  where
+    setPanning ch pan =  Safe.setPanning ch (realToFrac $ I.unPanning pan)
 
-stopChannelFmod :: EnvFMOD -> FmodState I.Playing -> IO (FmodState I.Stopped)
-stopChannelFmod env (PlayingSound ch done) = do
-  Safe.withChannelPtr ch $ \pCh ->
-    modifyMVar_ env.finishMap (pure . Map.delete pCh)
-  _ <- tryPutMVar done ()
-  Safe.stopChannel ch
-  pure (StoppedSound ch)
+stopChannelFmod :: forall st. I.Stoppable st => EnvFMOD -> FmodState st -> IO (FmodState I.Stopped)
+stopChannelFmod env stoppable = do
+  case stoppable of 
+    (PlayingSound channel finished) -> stop channel finished
+    (PausedSound  channel finished) -> stop channel finished
+  where 
+    stop ch done = do
+      Safe.withChannelPtr ch $ \pCh ->
+        modifyMVar_ env.finishMap (pure . Map.delete pCh)
+      _ <- tryPutMVar done ()
+      Safe.stopChannel ch
+      pure (StoppedSound ch)
 
 hasFinishedFmod :: FmodState I.Playing -> IO Bool
 hasFinishedFmod (PlayingSound _ finished) = do

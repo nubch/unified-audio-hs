@@ -3,6 +3,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE RankNTypes #-}
 
 module SDL.Backend
   ( runAudio,
@@ -63,25 +64,40 @@ resumeSDL :: SDLSound I.Paused -> IO (SDLSound I.Playing)
 resumeSDL (PausedSound channel finished) =
   Mix.resume channel >> return (PlayingSound channel finished)
 
-stopSDL :: FinishMap -> SDLSound I.Playing -> IO (SDLSound I.Stopped)
-stopSDL fm (PlayingSound channel finished) = do
-  Mix.halt channel
-  modifyMVar_ fm $ \m -> pure (Map.delete channel m)
-  _ <- tryPutMVar finished ()
-  return (StoppedSound channel)
+stopSDL :: forall st. I.Stoppable st => FinishMap -> SDLSound st -> IO (SDLSound I.Stopped)
+stopSDL fm stoppable =
+  case stoppable of 
+    (PlayingSound channel finished) -> stop channel finished
+    (PausedSound  channel finished) -> stop channel finished
+  where 
+    stop channel finished = do
+      Mix.halt channel
+      modifyMVar_ fm $ \m -> pure (Map.delete channel m)
+      _ <- tryPutMVar finished ()
+      return (StoppedSound channel)
 
 pauseSDL :: SDLSound I.Playing -> IO (SDLSound I.Paused)
 pauseSDL (PlayingSound channel finished) =
   Mix.pause channel >> return (PausedSound channel finished)
 
-setVolumeSDL :: SDLSound I.Playing -> I.Volume -> IO ()
-setVolumeSDL (PlayingSound channel _) vol =
-  Mix.setVolume (toSDLVolume vol) channel
+setVolumeSDL :: forall adj. I.Adjustable adj => SDLSound adj -> I.Volume -> IO ()
+setVolumeSDL adjustable vol = 
+  case adjustable of 
+    (PlayingSound channel _) -> Mix.setVolume volume channel
+    (PausedSound  channel _) -> Mix.setVolume volume channel
+  where volume = toSDLVolume vol
+  
 
-setPanningSDL :: SDLSound I.Playing -> I.Panning -> IO ()
-setPanningSDL (PlayingSound channel _) pan = do
-  let (left, right) = toSDLPanning pan
-  void $ Mix.effectPan channel left right
+setPanningSDL :: forall adj. I.Adjustable adj => SDLSound adj -> I.Panning -> IO ()
+setPanningSDL adjustable pan =
+  case adjustable of 
+    (PlayingSound channel _) -> setPan channel
+    (PausedSound  channel _) -> setPan channel
+  where 
+    setPan :: Mix.Channel -> IO ()
+    setPan channel = do
+      let (left, right) = toSDLPanning pan
+      void $ Mix.effectPan channel left right
 
 hasFinishedSDL :: SDLSound I.Playing -> IO Bool
 hasFinishedSDL (PlayingSound _ finished) = do 

@@ -1,25 +1,19 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
---{-# LANGUAGE AllowAmbiguousTypes #-}
 
 module UnifiedAudio.Effectful where
---module Interface
-  --( Audio,
-    --AudioRep,
-    --AudioBackend (..),
-    --Volume,
-    --mkVolume,
-    --unVolume,
-    --Panning,
-    --mkPanning,
-    --unPanning
-  --) where
+
 
 import Effectful
 import Effectful.Dispatch.Static
 import Data.Kind (Type)
+
+import GHC.Exts (Constraint)
+import GHC.TypeLits (TypeError, ErrorMessage(..))
 
 data Status = Loaded | Playing | Paused | Stopped
 
@@ -31,15 +25,16 @@ data Times = Once | Times Int | Forever
 data Audio (s :: Status -> Type) :: Effect
 
 data AudioBackend (s :: Status -> Type) = AudioBackend
-  {
-    loadA         :: FilePath -> IO (s Loaded),
-    playA         :: s Loaded -> Times -> IO (s Playing),
-    pauseA        :: s Playing -> IO (s Paused),
-    resumeA       :: s Paused -> IO (s Playing),
-    setVolumeA    :: s Playing -> Volume -> IO (),
-    setPanningA   :: s Playing -> Panning -> IO (),
-    stopChannelA  :: s Playing -> IO (s Stopped),
-    hasFinishedA  :: s Playing -> IO Bool
+  { loadA         :: FilePath -> IO (s 'Loaded)
+  , playA         :: s 'Loaded -> Times -> IO (s 'Playing)
+  , pauseA        :: s 'Playing -> IO (s 'Paused)
+  , resumeA       :: s 'Paused  -> IO (s 'Playing)
+
+  , setVolumeA    :: forall st. Adjustable st => s st -> Volume  -> IO ()
+  , setPanningA   :: forall st. Adjustable st => s st -> Panning -> IO ()
+  , stopChannelA         :: forall st. Stoppable  st => s st -> IO (s 'Stopped)
+
+  , hasFinishedA  :: s 'Playing -> IO Bool
   }
 
 type instance DispatchOf (Audio s) = Static WithSideEffects
@@ -48,6 +43,25 @@ newtype instance StaticRep (Audio s) = AudioRep (AudioBackend s)
 newtype Volume = Volume Float deriving (Show, Eq) -- Only values between 0 and 1
 
 newtype Panning = Panning Float deriving (Show, Eq)
+
+type family Stoppable (st :: Status) :: Constraint where
+  Stoppable 'Playing = ()
+  Stoppable 'Paused  = ()
+  Stoppable other =
+    TypeError
+      ( 'Text "stop: allowed only on Playing or Paused (got "
+     ':<>: 'ShowType other ':<>: 'Text ")"
+      )
+
+-- (Optional) allow controls while paused as well
+type family Adjustable (st :: Status) :: Constraint where
+  Adjustable 'Playing = ()
+  Adjustable 'Paused  = ()
+  Adjustable other =
+    TypeError
+      ( 'Text "volume/pan: allowed only on Playing or Paused (got "
+     ':<>: 'ShowType other ':<>: 'Text ")"
+      )
 
 --- Smart Constructors
 load :: Audio s :> es => FilePath -> Eff es (s Loaded)
@@ -74,23 +88,23 @@ pause channel = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.pauseA channel
 
-stopSound :: Audio s :> es => s Playing -> Eff es (s Stopped)
-stopSound channel = do
-  AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.stopChannelA channel
+stop :: (Audio s :> es, Stoppable st) => s st -> Eff es (s 'Stopped)
+stop channel = do
+  AudioRep AudioBackend{ stopChannelA = stop' } <- getStaticRep
+  unsafeEff_ (stop' channel)
 
-setVolume :: Audio s :> es => s Playing -> Volume -> Eff es ()
+setVolume :: (Audio s :> es, Adjustable st) => s st -> Volume -> Eff es ()
 setVolume channel volume = do
-  AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.setVolumeA channel volume
+  AudioRep AudioBackend{ setVolumeA = setVol } <- getStaticRep
+  unsafeEff_ (setVol channel volume)
 
-mute :: Audio s :> es => s Playing -> Eff es ()
+mute :: (Audio s :> es, Adjustable st) => s st -> Eff es ()
 mute channel = setVolume channel (mkVolume 0.0)
 
-setPanning :: Audio s :> es => s Playing -> Panning -> Eff es ()
+setPanning :: (Audio s :> es, Adjustable st) => s st -> Panning -> Eff es ()
 setPanning channel panning = do
-  AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.setPanningA channel panning
+  AudioRep AudioBackend{ setPanningA = setPan } <- getStaticRep
+  unsafeEff_ (setPan channel panning)
 
 hasFinished :: Audio s :> es => s Playing -> Eff es Bool
 hasFinished channel = do
