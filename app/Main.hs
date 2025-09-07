@@ -48,36 +48,36 @@ fileTypeTest = do
   flac <- load "sounds/example.flac"
 
   --- wav
-  log "Playing WAV"
+  write "Playing WAV"
   wav' <- play wav Once
   wait 3
   _ <- stop wav'
-  log "Stopped WAV"
+  write "Stopped WAV"
 
   --- mp3
-  log "Playing MP3"
+  write "Playing MP3"
   mp3' <- play mp3 Once
   wait 5
   _ <- stop mp3'
-  log "Stopped MP3"
+  write "Stopped MP3"
 
   --- ogg
-  log "Playing OGG"
+  write "Playing OGG"
   ogg' <- play ogg Once
   wait 5
   _ <- stop ogg'
-  log "Stopped OGG"
+  write "Stopped OGG"
 
   --- flac
-  log "Playing FLAC"
+  write "Playing FLAC"
   flac' <- play flac Once
   wait 5
   _ <- stop flac' 
-  log "Stopped FLAC"
+  write "Stopped FLAC"
 
   pure ()
   where
-    log = liftIO . putStrLn
+    write = liftIO . putStrLn
     wait x = unsafeEff_ $ threadDelay (x * 1000000)
   
 
