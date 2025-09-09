@@ -32,7 +32,8 @@ library
 
     build-depends:    base ^>=4.18.3.0,
                       effectful,
-                      effectful-core >= 2.0 && <2.3
+                      effectful-core >= 2.0 && <2.3,
+                      bytestring
 
     hs-source-dirs:   src-core/
 
@@ -69,13 +70,18 @@ library fmod-impl
                       Fmod.Result,
                       Fmod.Raw,
                       Fmod.Safe
+
+    c-sources:        src-impl/Fmod/csrc/fmod_mem.c
+
+    include-dirs:     /home/chris/unified-audio-hs/unified-audio-hs/fmod/inc
     
     visibility:       public
 
     build-depends:    base, 
                       effectful-core >= 2.0 && <2.3,
                       unified-audio-hs,
-                      containers
+                      containers,
+                      bytestring
 
     -- Directories containing source files.
     hs-source-dirs:   src-impl/
@@ -108,7 +114,8 @@ executable unified-audio-hs
         unified-audio-hs:fmod-impl,
         effectful,
         effectful-plugin,
-        effectful-core
+        effectful-core,
+        bytestring
 
     -- Directories containing source files.
     hs-source-dirs:   app

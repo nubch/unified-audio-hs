@@ -2,6 +2,9 @@
 module Fmod.Safe where
 
 import qualified Fmod.Raw as Raw
+import qualified Data.ByteString.Internal as BS (ByteString(..))
+import qualified Data.ByteString as BS
+
 import Fmod.Result ( checkResult, FmodResult(..) )
 import Foreign
     (
@@ -18,7 +21,8 @@ import Foreign
       ForeignPtr,
       castPtr,
       FunPtr,
-      finalizeForeignPtr)
+      finalizeForeignPtr,
+      plusPtr)
 
 import Foreign.C ( CFloat, CInt(..), CUInt, withCString )
 import Control.Exception ( bracket )
@@ -154,6 +158,19 @@ setChannelMode (Channel channel) mode =
 
 withChannelPtr :: Channel -> (Ptr Raw.FMODChannel -> IO a) -> IO a
 withChannelPtr (Channel fp) = withForeignPtr fp
+
+createSoundFromBytes :: System -> BS.ByteString -> IO Sound
+createSoundFromBytes (System sys) bs =
+  withForeignPtr sys $ \pSys ->
+  alloca $ \allocSound ->
+    case bs of
+      BS.PS fptr off len ->
+        withForeignPtr fptr $ \base -> do
+          let pData = castPtr (base `plusPtr` off)
+          checkResult =<< Raw.c_fmod_create_sound_from_memory pSys pData (fromIntegral len) allocSound
+          sndPtr <- peek allocSound
+          fp     <- newForeignPtr c_FMOD_Sound_Release sndPtr
+          pure (Sound fp)
 
 foreign import ccall safe "&FMOD_System_Release"
   c_FMOD_System_Release :: FinalizerPtr Raw.FMODSystem

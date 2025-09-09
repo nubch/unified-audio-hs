@@ -14,8 +14,15 @@ import Data.Kind (Type)
 
 import GHC.Exts (Constraint)
 import GHC.TypeLits (TypeError, ErrorMessage(..))
+import qualified Data.ByteString as BS
+
+data Source = FromFile FilePath | FromBytes BS.ByteString
 
 data Status = Loaded | Playing | Paused | Stopped
+  deriving (Show, Eq)
+
+data SoundType = Mono | Stereo
+  deriving (Show, Eq)
 
 data Times = Once | Times Int | Forever
   deriving (Show, Eq)
@@ -25,14 +32,15 @@ data Times = Once | Times Int | Forever
 data Audio (s :: Status -> Type) :: Effect
 
 data AudioBackend (s :: Status -> Type) = AudioBackend
-  { loadA         :: FilePath -> IO (s 'Loaded)
+  { 
+    loadA         :: Source -> SoundType -> IO (s 'Loaded)
   , playA         :: s 'Loaded -> Times -> IO (s 'Playing)
   , pauseA        :: s 'Playing -> IO (s 'Paused)
   , resumeA       :: s 'Paused  -> IO (s 'Playing)
 
   , setVolumeA    :: forall st. Adjustable st => s st -> Volume  -> IO ()
   , setPanningA   :: forall st. Adjustable st => s st -> Panning -> IO ()
-  , stopChannelA         :: forall st. Stoppable  st => s st -> IO (s 'Stopped)
+  , stopChannelA  :: forall st. Stoppable  st => s st -> IO (s 'Stopped)
 
   , hasFinishedA  :: s 'Playing -> IO Bool
   }
@@ -47,36 +55,39 @@ newtype Panning = Panning Float deriving (Show, Eq)
 type family Stoppable (st :: Status) :: Constraint where
   Stoppable 'Playing = ()
   Stoppable 'Paused  = ()
-  Stoppable other =
+  Stoppable other    =
     TypeError
-      ( 'Text "stop: allowed only on Playing or Paused (got "
-     ':<>: 'ShowType other ':<>: 'Text ")"
-      )
+      ( 'Text "operation requires a stoppable channel; got "
+     ':<>: 'ShowType other )
 
--- (Optional) allow controls while paused as well
 type family Adjustable (st :: Status) :: Constraint where
   Adjustable 'Playing = ()
   Adjustable 'Paused  = ()
-  Adjustable other =
+  Adjustable other    =
     TypeError
-      ( 'Text "volume/pan: allowed only on Playing or Paused (got "
-     ':<>: 'ShowType other ':<>: 'Text ")"
-      )
+      ( 'Text "operation requires an adjustable channel; got "
+     ':<>: 'ShowType other )
 
 --- Smart Constructors
-load :: Audio s :> es => FilePath -> Eff es (s Loaded)
-load bytes = do
+load :: Audio s :> es => Source -> SoundType -> Eff es (s Loaded)
+load src stype = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.loadA bytes
+  unsafeEff_ $ backend.loadA src stype
+
+loadFile :: Audio s :> es => FilePath -> SoundType -> Eff es (s Loaded)
+loadFile fp = load (FromFile fp)
+
+loadBytes :: Audio s :> es => BS.ByteString -> SoundType -> Eff es (s Loaded)
+loadBytes bs = load (FromBytes bs)
 
 resume :: Audio s :> es => s Paused -> Eff es (s Playing)
 resume channel = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.resumeA channel
 
-loadFile :: Audio s :> es => FilePath -> Eff es (s Loaded)
-loadFile filePath =
-  unsafeEff_ (readFile filePath) >>= load
+--loadFile :: Audio s :> es => FilePath -> Eff es (s Loaded)
+--loadFile filePath =
+  --unsafeEff_ (readFile filePath) >>= load
 
 play :: Audio s :> es => s Loaded -> Times -> Eff es (s Playing)
 play sound times = do

@@ -37,8 +37,12 @@ data EnvFMOD = EnvFMOD
   , callback  :: FunPtr Safe.ChannelCB
   }
 
-loadFmod :: EnvFMOD -> FilePath -> IO (FmodState I.Loaded)
-loadFmod env path = LoadedSound <$> Safe.createSound env.system path
+loadFmod :: EnvFMOD -> I.Source -> I.SoundType -> IO (FmodState I.Loaded)
+loadFmod env src _ = case src of 
+  I.FromFile fp -> 
+    LoadedSound <$> Safe.createSound env.system fp
+  I.FromBytes by ->
+    LoadedSound <$> Safe.createSoundFromBytes env.system by
 
 updateFmod :: EnvFMOD -> FmodState I.Loaded -> IO ()
 updateFmod env (LoadedSound sound) = Safe.systemUpdate env.system sound
