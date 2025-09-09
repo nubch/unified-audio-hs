@@ -101,9 +101,9 @@ resultFromCInt (CInt n)
     lo = fromEnum (minBound :: FmodResult)
     hi = fromEnum (maxBound :: FmodResult)
 
-checkResult :: CInt -> IO ()
-checkResult cint = 
+checkResult :: String -> CInt -> IO ()
+checkResult caller cint = 
     case resultFromCInt cint of
         Just OK  -> pure ()
-        Just err -> error $ "Fmod_Error -> " ++ show err
+        Just err -> error $ "Caller: " ++ caller ++ " Fmod_Error -> " ++ show err
         Nothing  -> error $ "Unknown Fmod Error"

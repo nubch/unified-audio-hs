@@ -49,8 +49,9 @@ initSDLFinishedMap = do
     modifyMVar_ finishMap $ \m ->
       case Map.lookup ch m of
         Just done -> do
+          putStrLn "Je suis done"
           _ <- tryPutMVar done ()
-          pure (Map.delete ch m)
+          pure m
         Nothing   -> pure m
   pure finishMap
 
@@ -116,6 +117,10 @@ hasFinishedSDL (PlayingSound _ finished _) = do
   fin <- isEmptyMVar finished
   pure $ not fin
 
+awaitFinishedSDL :: SDLSound I.Playing -> IO ()
+awaitFinishedSDL (PlayingSound _ finished _) =
+  takeMVar finished
+
 ----------------------------------------------------------------
 -- Volume / Panning (and helpers)
 ----------------------------------------------------------------
@@ -169,15 +174,16 @@ toSDLPanningMono x0 =
 makeBackendSDL :: FinishMap -> I.AudioBackend SDLSound
 makeBackendSDL fm =
   I.AudioBackend
-    { I.playA        = playSDL fm
-    , I.stopChannelA = stopSDL fm
-    , I.loadA        = loadSDL
-    , I.pauseA       = pauseSDL
-    , I.resumeA      = resumeSDL
-    , I.setPanningA  = setPanningSDL
-    , I.setVolumeA   = setVolumeSDL
-    , I.hasFinishedA = hasFinishedSDL
-    , I.unloadA      = unloadSDL
+    { I.playA          = playSDL fm
+    , I.stopChannelA   = stopSDL fm
+    , I.loadA          = loadSDL
+    , I.pauseA         = pauseSDL
+    , I.resumeA        = resumeSDL
+    , I.setPanningA    = setPanningSDL
+    , I.setVolumeA     = setVolumeSDL
+    , I.unloadA        = unloadSDL
+    , I.hasFinishedA   = hasFinishedSDL
+    , I.awaitFinishedA = awaitFinishedSDL
     }
 
 runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a

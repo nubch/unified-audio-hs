@@ -5,7 +5,7 @@ import qualified Fmod.Raw as Raw
 import qualified Data.ByteString.Internal as BS (ByteString(..))
 import qualified Data.ByteString as BS
 
-import Fmod.Result ( checkResult, FmodResult(..) )
+import Fmod.Result ( checkResult, resultFromCInt, FmodResult(..) )
 import Foreign
     (
       alloca,
@@ -83,21 +83,21 @@ drainActive fm = do
            -- unblock any waiter (idempotent)
            _ <- tryPutMVar done ()
            -- stop the channel
-           checkResult =<< Raw.c_FMOD_Channel_Stop pCh
+           checkResult "drainActive" =<< Raw.c_FMOD_Channel_Stop pCh
         ) (Map.toList snapshot)
 
 setChannelCallback :: Channel -> FunPtr ChannelCB -> IO ()
 setChannelCallback (Channel ch) cb = do
   withForeignPtr ch $ \pCh ->
-    checkResult =<< c_FMOD_Channel_SetCallback pCh cb
+    checkResult "setCallback" =<< c_FMOD_Channel_SetCallback pCh cb
 
 withSystem :: (System -> IO a) -> IO a
 withSystem = bracket acquire release
   where
     acquire = alloca $ \pSystem -> do
-      checkResult =<< Raw.c_FMOD_System_Create pSystem version
+      checkResult "createSystem" =<< Raw.c_FMOD_System_Create pSystem version
       system <- peek pSystem
-      checkResult =<< Raw.c_FMOD_System_Init system 512 0 nullPtr
+      checkResult "InitSystem" =<< Raw.c_FMOD_System_Init system 512 0 nullPtr
       fp <- newForeignPtr c_FMOD_System_Release system
       pure (System fp)
     release (System fp) = do 
@@ -108,7 +108,7 @@ createSound (System sys) path =
   withForeignPtr sys $ \pSys ->
   withCString path   $ \cPath ->
   alloca             $ \allocSound -> do
-    checkResult =<< Raw.c_FMOD_System_CreateSound pSys cPath 0 nullPtr allocSound
+    checkResult "CreateSound" =<< Raw.c_FMOD_System_CreateSound pSys cPath 0 nullPtr allocSound
     sndPtr <- peek allocSound
     fp     <- newForeignPtr c_FMOD_Sound_Release sndPtr
     return (Sound fp)
@@ -118,51 +118,60 @@ playSound (System sys) (Sound sound) =
   withForeignPtr sys   $ \pSys ->
   withForeignPtr sound $ \pSound ->
   alloca               $ \allocChan -> do
-    checkResult =<< Raw.c_FMOD_System_PlaySound pSys pSound nullPtr 0 allocChan
+    checkResult "playSound" =<< Raw.c_FMOD_System_PlaySound pSys pSound nullPtr 0 allocChan
     chPtr <- peek allocChan
     fp    <- newForeignPtr_ chPtr
     return (Channel fp)
 
+tryStopChannel :: Channel -> IO ()
+tryStopChannel (Channel ch) =
+  withForeignPtr ch $ \pCh -> do
+    r <- Raw.c_FMOD_Channel_Stop pCh
+    case resultFromCInt r of
+      Just OK                 -> pure ()
+      Just ERR_INVALID_HANDLE -> pure ()     -- fine: already stopped/freed
+      _                       -> checkResult "tryStop" r
+
 setPaused :: Bool -> Channel -> IO ()
 setPaused paused (Channel ch) =
   withForeignPtr ch $ \pCh ->
-    checkResult =<< Raw.c_FMOD_Channel_SetPaused pCh (fromBool paused)
+    checkResult "setPaused" =<< Raw.c_FMOD_Channel_SetPaused pCh (fromBool paused)
 
 setVolume :: Channel -> CFloat -> IO ()
 setVolume (Channel channel) volume =
   withForeignPtr channel $ \pChannel ->
-    checkResult =<< Raw.c_FMOD_Channel_SetVolume pChannel volume
+    checkResult "setVolume" =<< Raw.c_FMOD_Channel_SetVolume pChannel volume
 
 systemUpdate :: System -> Sound -> IO ()
 systemUpdate (System sys) (Sound _)=
-  withForeignPtr sys (checkResult <=< Raw.c_FMOD_System_Update)
+  withForeignPtr sys (checkResult "sysUpdate" <=< Raw.c_FMOD_System_Update)
 
 setPanning :: Channel -> CFloat -> IO ()
 setPanning (Channel channel) panning =
   withForeignPtr channel $ \pChannel ->
-    checkResult =<< Raw.c_FMOD_Channel_SetPan pChannel panning
+    checkResult "setPanning" =<< Raw.c_FMOD_Channel_SetPan pChannel panning
 
 stopChannel :: Channel -> IO ()
 stopChannel (Channel channel) =
-  withForeignPtr channel (checkResult <=< Raw.c_FMOD_Channel_Stop)
+  withForeignPtr channel (checkResult "stopChannel" <=< Raw.c_FMOD_Channel_Stop)
 
 setLoopCount :: Channel -> Int -> IO ()
 setLoopCount (Channel channel) times =
   withForeignPtr channel $ \pChannel ->
-    checkResult =<< Raw.c_FMOD_Channel_SetLoopCount pChannel (fromIntegral times)
+    checkResult "setLoop" =<< Raw.c_FMOD_Channel_SetLoopCount pChannel (fromIntegral times)
 
 setChannelMode :: Channel -> LoopMode -> IO ()
 setChannelMode (Channel channel) mode =
   withForeignPtr channel $ \pChannel ->
-    checkResult =<< Raw.c_FMOD_Channel_SetMode pChannel (toCuInt mode)
+    checkResult "setChannelMode" =<< Raw.c_FMOD_Channel_SetMode pChannel (toCuInt mode)
 
 withChannelPtr :: Channel -> (Ptr Raw.FMODChannel -> IO a) -> IO a
 withChannelPtr (Channel fp) =
    withForeignPtr fp
 
 finalizeSound :: Sound -> IO ()
-finalizeSound (Sound snd) =
-   finalizeForeignPtr snd
+finalizeSound (Sound sound) =
+   finalizeForeignPtr sound
 
 createSoundFromBytes :: System -> BS.ByteString -> IO Sound
 createSoundFromBytes (System sys) bs =
@@ -172,7 +181,7 @@ createSoundFromBytes (System sys) bs =
       BS.PS fptr off len ->
         withForeignPtr fptr $ \base -> do
           let pData = castPtr (base `plusPtr` off)
-          checkResult =<< Raw.c_fmod_create_sound_from_memory pSys pData (fromIntegral len) allocSound
+          checkResult "createSoundBytes" =<< Raw.c_fmod_create_sound_from_memory pSys pData (fromIntegral len) allocSound
           sndPtr <- peek allocSound
           fp     <- newForeignPtr c_FMOD_Sound_Release sndPtr
           pure (Sound fp)

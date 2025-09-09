@@ -27,7 +27,7 @@ test = do
   playing <- play wav (Times 1)
   wait 2
   liftIO $ putStrLn "Panning..."
-  setPanning playing (mkPanning (0.0))
+  setPanning playing (mkPanning 0.0)
   wait 5000
   pure ()
 
@@ -78,6 +78,7 @@ fileTypeTestBytes = do
   _ <- stop flac' 
   write "Stopped FLAC"
   write ""
+  dd <- play mp3 Once
   write "Test successful"
   where
     write = liftIO . putStrLn
@@ -125,8 +126,3 @@ fileTypeTestFilePath = do
   where
     write = liftIO . putStrLn
     wait x = unsafeEff_ $ threadDelay (x * 1000000)
-  
-
-
-
-

@@ -32,17 +32,18 @@ data Audio (s :: Status -> Type) :: Effect
 
 data AudioBackend (s :: Status -> Type) = AudioBackend
   { 
-    loadA         :: Source -> SoundType -> IO (s 'Loaded)
-  , playA         :: s 'Loaded -> Times -> IO (s 'Playing)
-  , pauseA        :: s 'Playing -> IO (s 'Paused)
-  , resumeA       :: s 'Paused  -> IO (s 'Playing)
+    loadA          :: Source -> SoundType -> IO (s 'Loaded)
+  , playA          :: s 'Loaded -> Times -> IO (s 'Playing)
+  , pauseA         :: s 'Playing -> IO (s 'Paused)
+  , resumeA        :: s 'Paused  -> IO (s 'Playing)
 
-  , setVolumeA    :: forall st. Adjustable st => s st -> Volume  -> IO ()
-  , setPanningA   :: forall st. Adjustable st => s st -> Panning -> IO ()
-  , stopChannelA  :: forall st. Stoppable  st => s st -> IO (s 'Stopped)
+  , setVolumeA     :: forall st. Adjustable st => s st -> Volume  -> IO ()
+  , setPanningA    :: forall st. Adjustable st => s st -> Panning -> IO ()
+  , stopChannelA   :: forall st. Stoppable  st => s st -> IO (s 'Stopped)
 
-  , hasFinishedA  :: s 'Playing -> IO Bool
-  , unloadA       :: s 'Loaded  -> IO ()
+  , hasFinishedA   :: s 'Playing -> IO Bool
+  , awaitFinishedA :: s 'Playing -> IO ()
+  , unloadA        :: s 'Loaded  -> IO ()
   }
 
 type instance DispatchOf (Audio s) = Static WithSideEffects
@@ -122,6 +123,11 @@ hasFinished :: Audio s :> es => s Playing -> Eff es Bool
 hasFinished channel = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.hasFinishedA channel
+
+awaitFinished :: Audio s :> es => s Playing -> Eff es ()
+awaitFinished channel = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.awaitFinishedA channel
 
 --updateSystem :: Audio s :> es => s Loaded -> Eff es ()
 --updateSystem loaded = do 
