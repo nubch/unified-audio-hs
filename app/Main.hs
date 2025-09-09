@@ -17,7 +17,7 @@ import Data.Char (GeneralCategory(ModifierLetter))
 import Fmod.Safe (stopChannel)
 
 main :: IO ()
-main = runEff $ Fmod.runAudio fileTypeTestBytes
+main = runEff $ SDL.runAudio fileTypeTestBytes
 
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
@@ -53,6 +53,7 @@ fileTypeTestBytes = do
   wait 3
   _ <- stop wav'
   write "Stopped WAV"
+  write ""
 
   --- mp3
   write "Playing MP3"
@@ -60,6 +61,7 @@ fileTypeTestBytes = do
   wait 5
   _ <- stop mp3'
   write "Stopped MP3"
+  write ""
 
   --- ogg
   write "Playing OGG"
@@ -67,6 +69,7 @@ fileTypeTestBytes = do
   wait 5
   _ <- stop ogg'
   write "Stopped OGG"
+  write ""
 
   --- flac
   write "Playing FLAC"
@@ -74,8 +77,8 @@ fileTypeTestBytes = do
   wait 5
   _ <- stop flac' 
   write "Stopped FLAC"
-
-  pure ()
+  write ""
+  write "Test successful"
   where
     write = liftIO . putStrLn
     wait x = unsafeEff_ $ threadDelay (x * 1000000)
@@ -93,6 +96,7 @@ fileTypeTestFilePath = do
   wait 3
   _ <- stop wav'
   write "Stopped WAV"
+  write ""
 
   --- mp3
   write "Playing MP3"
@@ -100,6 +104,7 @@ fileTypeTestFilePath = do
   wait 5
   _ <- stop mp3'
   write "Stopped MP3"
+  write ""
 
   --- ogg
   write "Playing OGG"
@@ -107,6 +112,7 @@ fileTypeTestFilePath = do
   wait 5
   _ <- stop ogg'
   write "Stopped OGG"
+  write ""
 
   --- flac
   write "Playing FLAC"
@@ -114,8 +120,8 @@ fileTypeTestFilePath = do
   wait 5
   _ <- stop flac' 
   write "Stopped FLAC"
-
-  pure ()
+  write ""
+  write "Test successful"
   where
     write = liftIO . putStrLn
     wait x = unsafeEff_ $ threadDelay (x * 1000000)

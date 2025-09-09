@@ -71,7 +71,9 @@ loadSDL src sType =
         decoded <- Mix.decode bytes
         pure $ LoadedSound decoded sType
 
-        
+unloadSDL :: SDLSound I.Loaded -> IO ()
+unloadSDL (LoadedSound chunk _) =
+  Mix.free chunk
 
 ----------------------------------------------------------------
 -- Play / Pause / Resume / Stop / Status
@@ -175,6 +177,7 @@ makeBackendSDL fm =
     , I.setPanningA  = setPanningSDL
     , I.setVolumeA   = setVolumeSDL
     , I.hasFinishedA = hasFinishedSDL
+    , I.unloadA      = unloadSDL
     }
 
 runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a

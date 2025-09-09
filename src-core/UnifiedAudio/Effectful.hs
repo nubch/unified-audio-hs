@@ -7,7 +7,6 @@
 
 module UnifiedAudio.Effectful where
 
-
 import Effectful
 import Effectful.Dispatch.Static
 import Data.Kind (Type)
@@ -43,6 +42,7 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
   , stopChannelA  :: forall st. Stoppable  st => s st -> IO (s 'Stopped)
 
   , hasFinishedA  :: s 'Playing -> IO Bool
+  , unloadA       :: s 'Loaded  -> IO ()
   }
 
 type instance DispatchOf (Audio s) = Static WithSideEffects
@@ -80,14 +80,15 @@ loadFile fp = load (FromFile fp)
 loadBytes :: Audio s :> es => BS.ByteString -> SoundType -> Eff es (s Loaded)
 loadBytes bs = load (FromBytes bs)
 
+unload :: Audio s :> es => s Loaded -> Eff es ()
+unload sound = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.unloadA sound
+
 resume :: Audio s :> es => s Paused -> Eff es (s Playing)
 resume channel = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.resumeA channel
-
---loadFile :: Audio s :> es => FilePath -> Eff es (s Loaded)
---loadFile filePath =
-  --unsafeEff_ (readFile filePath) >>= load
 
 play :: Audio s :> es => s Loaded -> Times -> Eff es (s Playing)
 play sound times = do

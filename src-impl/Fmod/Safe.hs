@@ -157,7 +157,12 @@ setChannelMode (Channel channel) mode =
     checkResult =<< Raw.c_FMOD_Channel_SetMode pChannel (toCuInt mode)
 
 withChannelPtr :: Channel -> (Ptr Raw.FMODChannel -> IO a) -> IO a
-withChannelPtr (Channel fp) = withForeignPtr fp
+withChannelPtr (Channel fp) =
+   withForeignPtr fp
+
+finalizeSound :: Sound -> IO ()
+finalizeSound (Sound snd) =
+   finalizeForeignPtr snd
 
 createSoundFromBytes :: System -> BS.ByteString -> IO Sound
 createSoundFromBytes (System sys) bs =

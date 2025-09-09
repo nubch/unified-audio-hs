@@ -23,13 +23,12 @@ import qualified UnifiedAudio.Effectful as I
 import qualified Fmod.Safe as Safe
 import qualified Data.Map.Strict as Map
 
-import Control.Exception (bracket)
+import Control.Exception ( bracket, mask, finally )
 import Control.Concurrent.MVar
 import Fmod.Safe (setLoopCount)
-
-import Control.Exception (mask, finally)
 import System.IO (hFlush, stdout)
 import Foreign.C (CFloat(CFloat))
+import UnifiedAudio.Effectful (unload)
 
 data EnvFMOD = EnvFMOD
   { system    :: Safe.System
@@ -38,11 +37,15 @@ data EnvFMOD = EnvFMOD
   }
 
 loadFmod :: EnvFMOD -> I.Source -> I.SoundType -> IO (FmodState I.Loaded)
-loadFmod env src _ = case src of 
-  I.FromFile fp -> 
+loadFmod env src _ = case src of
+  I.FromFile fp ->
     LoadedSound <$> Safe.createSound env.system fp
   I.FromBytes by ->
     LoadedSound <$> Safe.createSoundFromBytes env.system by
+
+unloadFmod :: FmodState I.Loaded -> IO ()
+unloadFmod (LoadedSound snd) = do
+  Safe.finalizeSound snd
 
 updateFmod :: EnvFMOD -> FmodState I.Loaded -> IO ()
 updateFmod env (LoadedSound sound) = Safe.systemUpdate env.system sound
@@ -93,7 +96,7 @@ setVolumeFmod adjustable volume =
     setVolume ch vol = Safe.setVolume ch (realToFrac $ I.unVolume vol)
 
 setPanningFmod :: forall adj. I.Adjustable adj => FmodState adj -> I.Panning -> IO ()
-setPanningFmod adjustable panning = 
+setPanningFmod adjustable panning =
   case adjustable of
     (PlayingSound playing _) -> setPanning playing panning
     (PausedSound  playing _) -> setPanning playing panning
@@ -102,10 +105,10 @@ setPanningFmod adjustable panning =
 
 stopChannelFmod :: forall st. I.Stoppable st => EnvFMOD -> FmodState st -> IO (FmodState I.Stopped)
 stopChannelFmod env stoppable = do
-  case stoppable of 
+  case stoppable of
     (PlayingSound channel finished) -> stop channel finished
     (PausedSound  channel finished) -> stop channel finished
-  where 
+  where
     stop ch done = do
       Safe.withChannelPtr ch $ \pCh ->
         modifyMVar_ env.finishMap (pure . Map.delete pCh)
@@ -134,7 +137,8 @@ makeBackendFmod env =
       I.setVolumeA   = setVolumeFmod,
       I.setPanningA  = setPanningFmod,
       I.stopChannelA = stopChannelFmod env,
-      I.hasFinishedA = hasFinishedFmod
+      I.hasFinishedA = hasFinishedFmod,
+      I.unloadA      = unloadFmod
     }
 
 runAudio
