@@ -107,7 +107,7 @@ checkResult caller cint =
     case resultFromCInt cint of
         Just OK  -> pure ()
         Just err -> error $ "Caller: " ++ caller ++ " Fmod_Error -> " ++ show err
-        Nothing  -> error $ "Unknown Fmod Error"
+        Nothing  -> error "Unknown Fmod Error"
 
 invalidHandleOrOk :: String -> CInt -> IO ()
 invalidHandleOrOk caller cint = 
@@ -115,3 +115,4 @@ invalidHandleOrOk caller cint =
       Just OK                 -> pure ()
       Just ERR_INVALID_HANDLE -> pure ()     -- fine: already stopped/freed
       Just err                -> error $ "Caller: " ++ caller ++ " Fmod_Error -> " ++ show err
+      Nothing  -> error "Unknown Fmod Error"

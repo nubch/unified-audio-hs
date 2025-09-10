@@ -5,7 +5,8 @@ import qualified Fmod.Raw as Raw
 import qualified Data.ByteString.Internal as BS (ByteString(..))
 import qualified Data.ByteString as BS
 
-import Fmod.Result ( checkResult, resultFromCInt, invalidHandleOrOk, FmodResult(..) )
+import qualified UnifiedAudio.Effectful as I
+import Fmod.Result ( checkResult, invalidHandleOrOk, )
 import Foreign
     (
       alloca,
@@ -57,9 +58,12 @@ foreign import ccall "wrapper"
 
 type FinishMap = MVar (Map.Map (Ptr Raw.FMODChannel) (MVar ()))
 
-setupFMODFinished :: IO (FinishMap, FunPtr ChannelCB)
-setupFMODFinished = do
+type PanMap = MVar (Map.Map (Ptr Raw.FMODChannel) I.Panning)
+
+setupFMODEnv :: IO (FinishMap, PanMap, FunPtr ChannelCB)
+setupFMODEnv = do
   finishMap <- newMVar Map.empty
+  stateMap  <- newMVar Map.empty
   callback  <- mkChannelCallback $ \channelControl _controlType callbackType _ _-> do
     when (callbackType == 0) $ do
       putStrLn "Je suis finished"  -- FMOD_CHANNEL_CALLBACKTYPE_END
@@ -71,8 +75,9 @@ setupFMODFinished = do
             pure (Map.delete pChannel finMap)
           Nothing   -> pure finMap
     pure 0
-  pure (finishMap, callback)
+  pure (finishMap, stateMap, callback)
 
+drainActive :: FinishMap -> IO ()
 drainActive fm = do
   snapshot <- swapMVar fm Map.empty
   mapM_ (\(pCh, done) -> do
@@ -142,13 +147,20 @@ setVolume (Channel channel) volume =
     checkResult "setVolume" =<< Raw.c_FMOD_Channel_SetVolume pChannel volume
 
 systemUpdate :: System -> Sound -> IO ()
-systemUpdate (System sys) (Sound _)=
+systemUpdate (System sys) (Sound _) =
   withForeignPtr sys (checkResult "sysUpdate" <=< Raw.c_FMOD_System_Update)
 
 setPanning :: Channel -> CFloat -> IO ()
 setPanning (Channel channel) panning =
   withForeignPtr channel $ \pChannel ->
     checkResult "setPanning" =<< Raw.c_FMOD_Channel_SetPan pChannel panning
+
+getChannelVolume :: Channel -> IO Float
+getChannelVolume (Channel ch) =
+  withForeignPtr ch $ \pCh ->
+    alloca $ \pOut -> do
+      checkResult "getChannelVolume" =<< Raw.c_FMOD_Channel_GetVolume pCh pOut
+      realToFrac <$> peek pOut
 
 stopChannel :: Channel -> IO ()
 stopChannel (Channel channel) =

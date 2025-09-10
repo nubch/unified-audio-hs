@@ -50,6 +50,17 @@ fileTypeTestBytes = do
   --- wav
   write "Playing WAV"
   wav' <- play wav Once
+  pan <- getPanning wav'
+  vol <- getVolume wav'
+  write $ show pan
+  write $ show vol
+  ---
+  setPanning wav' (mkPanning 0.7)
+  setVolume wav' (mkVolume 0.7)
+  pan <- getPanning wav'
+  vol <- getVolume wav'
+  write $ show pan
+  write $ show vol
   wait 3
   _ <- stop wav'
   write "Stopped WAV"

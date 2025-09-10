@@ -32,6 +32,10 @@ import qualified UnifiedAudio.Effectful as I
 
 type FinishMap = MVar (Map.Map Mix.Channel (MVar ()))
 
+type PanMap = MVar (Map.Map Mix.Channel I.Panning)
+
+data EnvSDL = EnvSDL {finishMap :: FinishMap, panMap :: PanMap}
+
 data SDLSound :: I.Status -> Type where
   LoadedSound  :: Mix.Chunk -> I.SoundType -> SDLSound I.Loaded
   PlayingSound :: Mix.Channel -> MVar () -> I.SoundType -> SDLSound I.Playing
@@ -42,18 +46,20 @@ data SDLSound :: I.Status -> Type where
 -- Init / Finalization
 ----------------------------------------------------------------
 
-initSDLFinishedMap :: IO FinishMap
-initSDLFinishedMap = do
-  finishMap <- newMVar Map.empty
-  Mix.whenChannelFinished $ \ch ->
-    modifyMVar_ finishMap $ \m ->
+initSDLEnv :: IO EnvSDL
+initSDLEnv = do
+  pMap   <- newMVar Map.empty
+  finMap <- newMVar Map.empty
+  Mix.whenChannelFinished $ \ch -> do
+    modifyMVar_ finMap $ \m ->
       case Map.lookup ch m of
         Just done -> do
-          putStrLn "Je suis done"
           _ <- tryPutMVar done ()
-          pure m
+          pure (Map.delete ch m)
         Nothing   -> pure m
-  pure finishMap
+    modifyMVar_ pMap $ \pm -> pure (Map.delete ch pm)
+  pure EnvSDL { finishMap = finMap, panMap = pMap }
+
 
 ----------------------------------------------------------------
 -- Loading
@@ -80,12 +86,18 @@ unloadSDL (LoadedSound chunk _) =
 -- Play / Pause / Resume / Stop / Status
 ----------------------------------------------------------------
 
-playSDL :: FinishMap -> SDLSound I.Loaded -> I.Times -> IO (SDLSound I.Playing)
-playSDL fm (LoadedSound loaded sType) times = do
+playSDL :: EnvSDL -> SDLSound I.Loaded -> I.Times -> IO (SDLSound I.Playing)
+playSDL env (LoadedSound loaded sType) times = do
   channel <- Mix.playOn Mix.AllChannels sdlTimes loaded
   done    <- newEmptyMVar
-  modifyMVar_ fm $ \m -> pure $ Map.insert channel done m
-  pure (PlayingSound channel done sType)
+  modifyMVar_ env.finishMap $ \m -> pure $ Map.insert channel done m
+  modifyMVar_ env.panMap   $ \pm -> pure $ Map.insert channel (I.mkPanning 0) pm
+  
+  -- Reset pan and volume if channel gets reused
+  let playingChannel = PlayingSound channel done sType
+  setPanningSDL env playingChannel I.defaultPanning
+  setVolumeSDL playingChannel I.defaultVolume
+  pure playingChannel
   where
     sdlTimes = case times of
       I.Once    -> Mix.Once
@@ -100,15 +112,16 @@ resumeSDL :: SDLSound I.Paused -> IO (SDLSound I.Playing)
 resumeSDL (PausedSound channel finished sType) =
   Mix.resume channel >> return (PlayingSound channel finished sType)
 
-stopSDL :: forall st. I.Stoppable st => FinishMap -> SDLSound st -> IO (SDLSound I.Stopped)
-stopSDL fm stoppable =
+stopSDL :: forall st. I.Stoppable st => EnvSDL -> SDLSound st -> IO (SDLSound I.Stopped)
+stopSDL env stoppable =
   case stoppable of
     (PlayingSound channel finished _) -> stop channel finished
     (PausedSound  channel finished _) -> stop channel finished
   where
     stop channel finished = do
       Mix.halt channel
-      modifyMVar_ fm $ \m -> pure (Map.delete channel m)
+      modifyMVar_ env.finishMap $ \m  -> pure (Map.delete channel m)
+      modifyMVar_ env.panMap    $ \pm -> pure (Map.delete channel pm)
       _ <- tryPutMVar finished ()
       return (StoppedSound channel)
 
@@ -133,8 +146,14 @@ setVolumeSDL adjustable vol =
   where
     volume = toSDLVolume vol
 
-setPanningSDL :: forall adj. I.Adjustable adj => SDLSound adj -> I.Panning -> IO ()
-setPanningSDL adjustable pan =
+getVolumeSDL :: forall adj. I.Adjustable adj => SDLSound adj -> IO I.Volume
+getVolumeSDL adjustable =
+  case adjustable of
+    (PlayingSound channel _ _) -> toInterfaceVolume <$> Mix.getVolume channel
+    (PausedSound  channel _ _) -> toInterfaceVolume <$> Mix.getVolume channel
+
+setPanningSDL :: forall adj. I.Adjustable adj => EnvSDL -> SDLSound adj -> I.Panning -> IO ()
+setPanningSDL env adjustable pan =
   case adjustable of
     (PlayingSound channel _ sType) -> setPan channel sType
     (PausedSound  channel _ sType) -> setPan channel sType
@@ -146,11 +165,28 @@ setPanningSDL adjustable pan =
                      I.Mono   -> toSDLPanningMono   x  -- equal-power (mono→stereo)
                      I.Stereo -> toSDLPanningStereo x  -- balance (tilt)
       void $ Mix.effectPan channel l r
+      modifyMVar_ env.panMap $ \pm -> pure $ Map.insert channel pan pm
+
+getPanningSDL :: forall adj. I.Adjustable adj => EnvSDL -> SDLSound adj -> IO I.Panning
+getPanningSDL env adjustable =
+  case adjustable of
+    (PlayingSound ch _ _) -> getPan ch
+    (PausedSound  ch _ _) -> getPan ch
+  where
+    getPan ch = do
+      pm <- readMVar env.panMap
+      pure (Map.findWithDefault (I.mkPanning 0) ch pm)
 
 toSDLVolume :: I.Volume -> Int
 toSDLVolume vol = round (volume * 128)
   where
     volume = I.unVolume vol
+
+toInterfaceVolume :: Int -> I.Volume
+toInterfaceVolume v =
+  let x :: Float
+      x = fromIntegral (max 0 (min 128 v)) / 128.0
+  in I.mkVolume x
 
 -- 0..128 per side (128 = full). effectPan doubles internally to 0..255.
 toSDLPanningStereo :: Float -> (Int, Int)
@@ -171,15 +207,17 @@ toSDLPanningMono x0 =
 -- Backend wiring / Runner
 ----------------------------------------------------------------
 
-makeBackendSDL :: FinishMap -> I.AudioBackend SDLSound
-makeBackendSDL fm =
+makeBackendSDL :: EnvSDL -> I.AudioBackend SDLSound
+makeBackendSDL env =
   I.AudioBackend
-    { I.playA          = playSDL fm
-    , I.stopChannelA   = stopSDL fm
+    { I.playA          = playSDL env
+    , I.stopChannelA   = stopSDL env
     , I.loadA          = loadSDL
     , I.pauseA         = pauseSDL
     , I.resumeA        = resumeSDL
-    , I.setPanningA    = setPanningSDL
+    , I.setPanningA    = setPanningSDL env
+    , I.getPanningA    = getPanningSDL env
+    , I.getVolumeA     = getVolumeSDL
     , I.setVolumeA     = setVolumeSDL
     , I.unloadA        = unloadSDL
     , I.hasFinishedA   = hasFinishedSDL
@@ -190,5 +228,5 @@ runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a
 runAudio eff =
   withEffToIO $ \runInIO ->
     Mix.withAudio Mix.defaultAudio 4096 $ do
-      finishMap <- initSDLFinishedMap
-      runInIO (evalStaticRep (I.AudioRep (makeBackendSDL finishMap)) eff)
+      env <- initSDLEnv
+      runInIO (evalStaticRep (I.AudioRep (makeBackendSDL env)) eff)

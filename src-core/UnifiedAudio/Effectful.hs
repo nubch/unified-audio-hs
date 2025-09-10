@@ -38,7 +38,9 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
   , resumeA        :: s 'Paused  -> IO (s 'Playing)
 
   , setVolumeA     :: forall st. Adjustable st => s st -> Volume  -> IO ()
+  , getVolumeA     :: forall ad. Adjustable ad => s ad -> IO Volume
   , setPanningA    :: forall st. Adjustable st => s st -> Panning -> IO ()
+  , getPanningA    :: forall ad. Adjustable ad => s ad -> IO Panning
   , stopChannelA   :: forall st. Stoppable  st => s st -> IO (s 'Stopped)
 
   , hasFinishedA   :: s 'Playing -> IO Bool
@@ -111,6 +113,11 @@ setVolume channel volume = do
   AudioRep AudioBackend{ setVolumeA = setVol } <- getStaticRep
   unsafeEff_ (setVol channel volume)
 
+getVolume :: (Audio s :> es, Adjustable st) => s st -> Eff es Volume
+getVolume channel = do
+  AudioRep AudioBackend{ getVolumeA = getVol } <- getStaticRep
+  unsafeEff_ (getVol channel)
+
 mute :: (Audio s :> es, Adjustable st) => s st -> Eff es ()
 mute channel = setVolume channel (mkVolume 0.0)
 
@@ -118,6 +125,11 @@ setPanning :: (Audio s :> es, Adjustable st) => s st -> Panning -> Eff es ()
 setPanning channel panning = do
   AudioRep AudioBackend{ setPanningA = setPan } <- getStaticRep
   unsafeEff_ (setPan channel panning)
+
+getPanning :: (Audio s :> es, Adjustable st) => s st -> Eff es Panning
+getPanning channel = do
+  AudioRep AudioBackend{ getPanningA = getPan } <- getStaticRep
+  unsafeEff_ (getPan channel)
 
 hasFinished :: Audio s :> es => s Playing -> Eff es Bool
 hasFinished channel = do
@@ -149,3 +161,9 @@ mkVolume x = Volume (clamp x)
 
 unVolume :: Volume -> Float
 unVolume (Volume v) = v
+
+defaultPanning :: Panning
+defaultPanning = mkPanning 0.0
+
+defaultVolume :: Volume
+defaultVolume = mkVolume 1.0

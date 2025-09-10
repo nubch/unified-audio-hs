@@ -10,29 +10,50 @@
 
 module Fmod.Backend (runAudio) where
 
+----------------------------------------------------------------
+-- Imports
+----------------------------------------------------------------
+
 -- Effectful
 import Data.Kind (Type)
+import Data.Maybe (fromMaybe)
 import Foreign ( FunPtr, freeHaskellFunPtr)
 import Effectful (Eff, IOE, type (:>), withEffToIO)
 import Effectful.Dispatch.Static
   ( evalStaticRep, unsafeEff_
   )
 
--- Interface
+-- Interface / Safe layer
 import qualified UnifiedAudio.Effectful as I
 import qualified Fmod.Safe as Safe
 import qualified Data.Map.Strict as Map
 
+-- Concurrency / system
 import Control.Exception ( mask, finally )
 import Control.Concurrent.MVar
 import Fmod.Safe (setLoopCount)
 import System.IO (hFlush, stdout)
 
+----------------------------------------------------------------
+-- Types
+----------------------------------------------------------------
+
 data EnvFMOD = EnvFMOD
   { system    :: Safe.System
   , finishMap :: Safe.FinishMap
+  , panMap    ::  Safe.PanMap
   , callback  :: FunPtr Safe.ChannelCB
   }
+
+data FmodState :: I.Status -> Type where
+  LoadedSound  :: Safe.Sound -> FmodState I.Loaded
+  PlayingSound :: Safe.Channel -> MVar () -> Safe.Sound -> FmodState I.Playing
+  PausedSound  :: Safe.Channel -> MVar () -> Safe.Sound -> FmodState I.Paused
+  StoppedSound :: Safe.Channel -> FmodState I.Stopped
+
+----------------------------------------------------------------
+-- Loading
+----------------------------------------------------------------
 
 loadFmod :: EnvFMOD -> I.Source -> I.SoundType -> IO (FmodState I.Loaded)
 loadFmod env src _ = case src of
@@ -48,13 +69,18 @@ unloadFmod (LoadedSound sound) = do
 updateFmod :: EnvFMOD -> FmodState I.Loaded -> IO ()
 updateFmod env (LoadedSound sound) = Safe.systemUpdate env.system sound
 
+----------------------------------------------------------------
+-- Play / Pause / Resume / Stop / Status
+----------------------------------------------------------------
+
 playFmod :: EnvFMOD -> FmodState I.Loaded -> I.Times -> IO (FmodState I.Playing)
 playFmod env (LoadedSound sound) times = do
   channel <- Safe.playSound env.system sound
   finished <- newEmptyMVar
   Safe.setChannelCallback channel env.callback
-  Safe.withChannelPtr channel $ \pCh ->
+  Safe.withChannelPtr channel $ \pCh -> do
     modifyMVar_ env.finishMap (pure . Map.insert pCh finished)
+    modifyMVar_ env.panMap  (pure . Map.insert pCh I.defaultPanning)
   paused <- pauseFmod (PlayingSound channel finished sound)
   applyTimes times paused
   resumeFmod paused
@@ -85,22 +111,6 @@ resumeFmod (PausedSound channel finished sound) = do
   ch <- setPausedFmod False channel
   pure (PlayingSound ch finished sound)
 
-setVolumeFmod :: forall adj. I.Adjustable adj => FmodState adj -> I.Volume -> IO ()
-setVolumeFmod adjustable volume =
-  case adjustable of
-    (PlayingSound playing _ _) -> setVolume playing volume
-    (PausedSound  playing _ _) -> setVolume playing volume
-  where
-    setVolume ch vol = Safe.setVolume ch (realToFrac $ I.unVolume vol)
-
-setPanningFmod :: forall adj. I.Adjustable adj => FmodState adj -> I.Panning -> IO ()
-setPanningFmod adjustable panning =
-  case adjustable of
-    (PlayingSound playing _ _) -> setPanning playing panning
-    (PausedSound  playing _ _) -> setPanning playing panning
-  where
-    setPanning ch pan =  Safe.setPanning ch (realToFrac $ I.unPanning pan)
-
 stopChannelFmod :: forall st. I.Stoppable st => EnvFMOD -> FmodState st -> IO (FmodState I.Stopped)
 stopChannelFmod env stoppable = do
   case stoppable of
@@ -108,8 +118,9 @@ stopChannelFmod env stoppable = do
     (PausedSound  channel finished _) -> stop channel finished
   where
     stop ch done = do
-      Safe.withChannelPtr ch $ \pCh ->
+      Safe.withChannelPtr ch $ \pCh -> do
         modifyMVar_ env.finishMap (pure . Map.delete pCh)
+        modifyMVar_ env.panMap (pure . Map.delete pCh)
       _ <- tryPutMVar done ()
       Safe.tryStopChannel ch
       pure (StoppedSound ch)
@@ -123,11 +134,46 @@ awaitFinishedFmod :: FmodState I.Playing -> IO ()
 awaitFinishedFmod (PlayingSound _ finished _) =
   takeMVar finished
 
-data FmodState :: I.Status -> Type where
-  LoadedSound  :: Safe.Sound -> FmodState I.Loaded
-  PlayingSound :: Safe.Channel -> MVar () -> Safe.Sound -> FmodState I.Playing
-  PausedSound  :: Safe.Channel -> MVar () -> Safe.Sound -> FmodState I.Paused
-  StoppedSound :: Safe.Channel -> FmodState I.Stopped
+----------------------------------------------------------------
+-- Volume / Panning
+----------------------------------------------------------------
+
+setVolumeFmod :: forall adj. I.Adjustable adj => FmodState adj -> I.Volume -> IO ()
+setVolumeFmod adjustable volume =
+  case adjustable of
+    (PlayingSound playing _ _) -> setVolume playing volume
+    (PausedSound  playing _ _) -> setVolume playing volume
+  where
+    setVolume ch vol = Safe.setVolume ch (realToFrac $ I.unVolume vol)
+
+setPanningFmod :: forall adj. I.Adjustable adj => EnvFMOD -> FmodState adj -> I.Panning -> IO ()
+setPanningFmod env adjustable panning =
+  case adjustable of
+    (PlayingSound playing _ _) -> setPanning playing panning
+    (PausedSound  playing _ _) -> setPanning playing panning
+  where
+    setPanning ch pan = do
+      Safe.setPanning ch (realToFrac $ I.unPanning pan)
+      Safe.withChannelPtr ch $ \pCh ->
+        modifyMVar_ env.panMap $ pure . Map.adjust (const pan) pCh
+
+getVolumeFmod :: forall st. I.Adjustable st => FmodState st -> IO I.Volume
+getVolumeFmod s = case s of
+  (PlayingSound ch _ _) -> I.mkVolume <$> Safe.getChannelVolume ch
+  (PausedSound  ch _ _) -> I.mkVolume <$> Safe.getChannelVolume ch
+
+getPanningFmod :: forall st. EnvFMOD -> I.Adjustable st => FmodState st -> IO I.Panning
+getPanningFmod env s = case s of
+  (PlayingSound ch _ _) -> getPan ch
+  (PausedSound  ch _ _) -> getPan ch
+  where
+    getPan ch = Safe.withChannelPtr ch $ \pCh -> do
+      m <- readMVar env.panMap
+      pure $ fromMaybe I.defaultPanning (Map.lookup pCh m)
+
+----------------------------------------------------------------
+-- Backend wiring / Runner
+----------------------------------------------------------------
 
 makeBackendFmod :: EnvFMOD -> I.AudioBackend FmodState
 makeBackendFmod env =
@@ -137,31 +183,28 @@ makeBackendFmod env =
       I.pauseA         = pauseFmod,
       I.resumeA        = resumeFmod,
       I.setVolumeA     = setVolumeFmod,
-      I.setPanningA    = setPanningFmod,
+      I.getVolumeA     = getVolumeFmod,
+      I.setPanningA    = setPanningFmod env,
+      I.getPanningA    = getPanningFmod env,
       I.stopChannelA   = stopChannelFmod env,
       I.hasFinishedA   = hasFinishedFmod,
       I.unloadA        = unloadFmod,
       I.awaitFinishedA = awaitFinishedFmod
     }
 
-runAudio
-  :: (IOE :> es)
-  => Eff (I.Audio FmodState : es) a
-  -> Eff es a
+runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a
 runAudio eff =
   withEffToIO $ \runInIO ->
     -- All FMOD lifetime in one scope:
     Safe.withSystem $ \sys -> mask $ \restore -> do
       -- allocate finished-callback, keep alive for whole session
-      (finMap, cb) <- Safe.setupFMODFinished
+      (finMap, pnMap, cb) <- Safe.setupFMODEnv
 
-      let env     = EnvFMOD sys finMap cb
+      let env     = EnvFMOD { system = sys, finishMap = finMap, panMap = pnMap, callback = cb }
           backend = makeBackendFmod env
           runApp  = runInIO (evalStaticRep (I.AudioRep backend) eff)
 
-      -- run the app; on any exit, detach+free then log
       restore runApp `finally` do
-        -- IMPORTANT: detach callbacks BEFORE closing/releasing FMOD
         Safe.drainActive env.finishMap  -- setCallback NULL on any tracked channels
         hFlush stdout
         freeHaskellFunPtr cb
