@@ -17,7 +17,7 @@ import Data.Char (GeneralCategory(ModifierLetter))
 import Fmod.Safe (stopChannel)
 
 main :: IO ()
-main = runEff $ SDL.runAudio fileTypeTestBytes
+main = runEff $ Fmod.runAudio fileTypeTestBytes
 
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do

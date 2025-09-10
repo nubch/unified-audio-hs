@@ -5,7 +5,7 @@ import qualified Fmod.Raw as Raw
 import qualified Data.ByteString.Internal as BS (ByteString(..))
 import qualified Data.ByteString as BS
 
-import Fmod.Result ( checkResult, resultFromCInt, FmodResult(..) )
+import Fmod.Result ( checkResult, resultFromCInt, invalidHandleOrOk, FmodResult(..) )
 import Foreign
     (
       alloca,
@@ -73,17 +73,12 @@ setupFMODFinished = do
     pure 0
   pure (finishMap, callback)
 
-drainActive :: FinishMap -> IO ()
 drainActive fm = do
   snapshot <- swapMVar fm Map.empty
-  -- iterate WITHOUT holding fm, so callbacks won't deadlock
   mapM_ (\(pCh, done) -> do
-           -- detach the per-channel callback (belt & suspenders)
-           _ <- c_FMOD_Channel_SetCallback pCh nullFunPtr
-           -- unblock any waiter (idempotent)
            _ <- tryPutMVar done ()
-           -- stop the channel
-           checkResult "drainActive" =<< Raw.c_FMOD_Channel_Stop pCh
+           detachCallbackPtr pCh
+           tryStopPtr      pCh
         ) (Map.toList snapshot)
 
 setChannelCallback :: Channel -> FunPtr ChannelCB -> IO ()
@@ -126,11 +121,15 @@ playSound (System sys) (Sound sound) =
 tryStopChannel :: Channel -> IO ()
 tryStopChannel (Channel ch) =
   withForeignPtr ch $ \pCh -> do
-    r <- Raw.c_FMOD_Channel_Stop pCh
-    case resultFromCInt r of
-      Just OK                 -> pure ()
-      Just ERR_INVALID_HANDLE -> pure ()     -- fine: already stopped/freed
-      _                       -> checkResult "tryStop" r
+    invalidHandleOrOk "tryStop" =<< Raw.c_FMOD_Channel_Stop pCh
+
+detachCallbackPtr :: Ptr Raw.FMODChannel -> IO ()
+detachCallbackPtr pCh = do
+  invalidHandleOrOk "detachCallbackPtr" =<< c_FMOD_Channel_SetCallback pCh nullFunPtr
+
+tryStopPtr :: Ptr Raw.FMODChannel -> IO ()
+tryStopPtr pCh = do
+  invalidHandleOrOk "tryStopPtr" =<< Raw.c_FMOD_Channel_Stop pCh
 
 setPaused :: Bool -> Channel -> IO ()
 setPaused paused (Channel ch) =

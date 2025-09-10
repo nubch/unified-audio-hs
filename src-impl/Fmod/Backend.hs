@@ -162,6 +162,6 @@ runAudio eff =
       -- run the app; on any exit, detach+free then log
       restore runApp `finally` do
         -- IMPORTANT: detach callbacks BEFORE closing/releasing FMOD
-        --Safe.drainActive env.finishMap  -- setCallback NULL on any tracked channels
+        Safe.drainActive env.finishMap  -- setCallback NULL on any tracked channels
         hFlush stdout
         freeHaskellFunPtr cb
