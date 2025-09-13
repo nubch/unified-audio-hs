@@ -9,6 +9,7 @@ import Foreign.C
 data FMODSystem
 data FMODSound
 data FMODChannel
+data FMODChannelGroup
 
 type FMOD_RESULT = CInt
 
@@ -27,6 +28,25 @@ foreign import ccall safe "FMOD_System_PlaySound"
 
 foreign import ccall safe "FMOD_System_Update"
   c_FMOD_System_Update :: Ptr FMODSystem -> IO FMOD_RESULT
+
+-- ChannelGroup API
+foreign import ccall safe "FMOD_System_CreateChannelGroup"
+  c_FMOD_System_CreateChannelGroup :: Ptr FMODSystem -> CString -> Ptr (Ptr FMODChannelGroup) -> IO FMOD_RESULT
+
+foreign import ccall safe "FMOD_System_GetMasterChannelGroup"
+  c_FMOD_System_GetMasterChannelGroup :: Ptr FMODSystem -> Ptr (Ptr FMODChannelGroup) -> IO FMOD_RESULT
+
+foreign import ccall safe "FMOD_Channel_SetChannelGroup"
+  c_FMOD_Channel_SetChannelGroup :: Ptr FMODChannel -> Ptr FMODChannelGroup -> IO FMOD_RESULT
+
+foreign import ccall safe "FMOD_ChannelGroup_SetPaused"
+  c_FMOD_ChannelGroup_SetPaused :: Ptr FMODChannelGroup -> CBool -> IO FMOD_RESULT
+
+foreign import ccall safe "FMOD_ChannelGroup_SetVolume"
+  c_FMOD_ChannelGroup_SetVolume :: Ptr FMODChannelGroup -> CFloat -> IO FMOD_RESULT
+
+foreign import ccall safe "FMOD_ChannelGroup_Stop"
+  c_FMOD_ChannelGroup_Stop :: Ptr FMODChannelGroup -> IO FMOD_RESULT
 
 foreign import ccall safe "FMOD_Channel_SetPaused"
   c_FMOD_Channel_SetPaused :: Ptr FMODChannel -> CBool -> IO FMOD_RESULT
@@ -54,5 +74,4 @@ foreign import ccall safe "FMOD_Channel_GetVolume"
 
 foreign import ccall safe "fmod_create_sound_from_memory"
   c_fmod_create_sound_from_memory :: Ptr FMODSystem -> Ptr () -> CInt -> Ptr (Ptr FMODSound) -> IO FMOD_RESULT
-
 

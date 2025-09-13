@@ -31,6 +31,15 @@ import qualified Data.Map.Strict as Map
 -- Concurrency / system
 import Control.Exception ( mask, finally )
 import Control.Concurrent.MVar
+    ( MVar,
+      modifyMVar_,
+      isEmptyMVar,
+      newEmptyMVar,
+      readMVar,
+      takeMVar,
+      putMVar,
+      tryPutMVar,
+      newMVar )
 import Fmod.Safe (setLoopCount)
 import System.IO (hFlush, stdout)
 
@@ -38,15 +47,20 @@ import System.IO (hFlush, stdout)
 -- Types
 ----------------------------------------------------------------
 
+type GroupMap = MVar (Map.Map Int Safe.ChannelGroup)
+
 data EnvFMOD = EnvFMOD
-  { system    :: Safe.System
-  , finishMap :: Safe.FinishMap
-  , panMap    ::  Safe.PanMap
-  , callback  :: FunPtr Safe.ChannelCB
+  { system      :: Safe.System
+  , finishMap   :: Safe.FinishMap
+  , panMap      :: Safe.PanMap
+  , callback    :: FunPtr Safe.ChannelCB
+  , groupMap    :: GroupMap
+  , nextGroupId :: MVar Int
   }
 
 data FmodState :: I.Status -> Type where
   LoadedSound  :: Safe.Sound -> FmodState I.Loaded
+  UnloadedSound :: FmodState I.Unloaded
   PlayingSound :: Safe.Channel -> MVar () -> Safe.Sound -> FmodState I.Playing
   PausedSound  :: Safe.Channel -> MVar () -> Safe.Sound -> FmodState I.Paused
   StoppedSound :: Safe.Channel -> FmodState I.Stopped
@@ -62,9 +76,10 @@ loadFmod env src _ = case src of
   I.FromBytes by ->
     LoadedSound <$> Safe.createSoundFromBytes env.system by
 
-unloadFmod :: FmodState I.Loaded -> IO ()
+unloadFmod :: FmodState I.Loaded -> IO (FmodState I.Unloaded)
 unloadFmod (LoadedSound sound) = do
-  Safe.finalizeSound sound
+   Safe.finalizeSound sound
+   pure UnloadedSound
 
 updateFmod :: EnvFMOD -> FmodState I.Loaded -> IO ()
 updateFmod env (LoadedSound sound) = Safe.systemUpdate env.system sound
@@ -189,7 +204,12 @@ makeBackendFmod env =
       I.stopChannelA   = stopChannelFmod env,
       I.hasFinishedA   = hasFinishedFmod,
       I.unloadA        = unloadFmod,
-      I.awaitFinishedA = awaitFinishedFmod
+      I.awaitFinishedA = awaitFinishedFmod,
+      I.mkGroupA       = mkGroupFmod env,
+      I.addToGroupA    = addToGroupFmod env,
+      I.removeFromGroupA = removeFromGroupFmod env,
+      I.pauseGroupA    = pauseGroupFmod env,
+      I.resumeGroupA   = resumeGroupFmod env
     }
 
 runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a
@@ -200,7 +220,15 @@ runAudio eff =
       -- allocate finished-callback, keep alive for whole session
       (finMap, pnMap, cb) <- Safe.setupFMODEnv
 
-      let env     = EnvFMOD { system = sys, finishMap = finMap, panMap = pnMap, callback = cb }
+      gMap   <- newMVar Map.empty
+      gidRef <- newMVar 0
+      let env     = EnvFMOD { system = sys
+                            , finishMap = finMap
+                            , panMap    = pnMap
+                            , callback  = cb
+                            , groupMap  = gMap
+                            , nextGroupId = gidRef
+                            }
           backend = makeBackendFmod env
           runApp  = runInIO (evalStaticRep (I.AudioRep backend) eff)
 
@@ -208,3 +236,47 @@ runAudio eff =
         Safe.drainActive env.finishMap  -- setCallback NULL on any tracked channels
         hFlush stdout
         freeHaskellFunPtr cb
+
+----------------------------------------------------------------
+-- Groups (FMOD)
+----------------------------------------------------------------
+
+mkGroupFmod :: EnvFMOD -> String -> IO (I.Group FmodState)
+mkGroupFmod env name = do
+  grp <- Safe.createChannelGroup env.system name
+  -- generate a fresh group id
+  n <- takeMVar env.nextGroupId
+  let gid = n
+  putMVar env.nextGroupId (n + 1)
+  modifyMVar_ env.groupMap $ \gm -> pure (Map.insert gid grp gm)
+  pure (I.GroupId gid)
+
+addToGroupFmod :: forall st. I.Groupable st => EnvFMOD -> I.Group FmodState -> FmodState st -> IO ()
+addToGroupFmod env (I.GroupId gid) s = do
+  gm <- readMVar env.groupMap
+  case Map.lookup gid gm of
+    Nothing -> pure ()
+    Just grp -> case s of
+      PlayingSound ch _ _ -> Safe.setChannelGroup ch grp
+      PausedSound  ch _ _ -> Safe.setChannelGroup ch grp
+
+removeFromGroupFmod :: forall st. I.Groupable st => EnvFMOD -> I.Group FmodState -> FmodState st -> IO ()
+removeFromGroupFmod env _ s = do
+  master <- Safe.getMasterChannelGroup env.system
+  case s of
+    PlayingSound ch _ _ -> Safe.setChannelGroup ch master
+    PausedSound  ch _ _ -> Safe.setChannelGroup ch master
+
+pauseGroupFmod :: EnvFMOD -> I.Group FmodState -> IO ()
+pauseGroupFmod env (I.GroupId gid) = do
+  gm <- readMVar env.groupMap
+  case Map.lookup gid gm of
+    Nothing  -> pure ()
+    Just grp -> Safe.setGroupPaused grp True
+
+resumeGroupFmod :: EnvFMOD -> I.Group FmodState -> IO ()
+resumeGroupFmod env (I.GroupId gid) = do
+  gm <- readMVar env.groupMap
+  case Map.lookup gid gm of
+    Nothing  -> pure ()
+    Just grp -> Safe.setGroupPaused grp False

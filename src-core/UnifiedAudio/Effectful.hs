@@ -4,6 +4,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE KindSignatures #-}
 
 module UnifiedAudio.Effectful where
 
@@ -17,7 +19,9 @@ import qualified Data.ByteString as BS
 
 data Source = FromFile FilePath | FromBytes BS.ByteString
 
-data Status = Loaded | Playing | Paused | Stopped
+newtype Group (s :: Status -> Type) = GroupId Int 
+
+data Status = Loaded | Playing | Paused | Stopped | Unloaded
   deriving (Show, Eq)
 
 data SoundType = Mono | Stereo
@@ -45,7 +49,12 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
 
   , hasFinishedA   :: s 'Playing -> IO Bool
   , awaitFinishedA :: s 'Playing -> IO ()
-  , unloadA        :: s 'Loaded  -> IO ()
+  , unloadA        :: s 'Loaded  -> IO (s 'Unloaded)
+  , mkGroupA       :: String        -> IO (Group s)
+  , addToGroupA    :: forall st. Groupable st => Group s -> s st -> IO ()
+  , removeFromGroupA :: forall st. Groupable st => Group s -> s st -> IO ()
+  , pauseGroupA    :: Group s -> IO ()
+  , resumeGroupA   :: Group s -> IO ()
   }
 
 type instance DispatchOf (Audio s) = Static WithSideEffects
@@ -71,6 +80,15 @@ type family Adjustable (st :: Status) :: Constraint where
       ( 'Text "operation requires an adjustable channel; got "
      ':<>: 'ShowType other )
 
+-- Channels eligible for group membership/ops
+type family Groupable (st :: Status) :: Constraint where
+  Groupable 'Playing = ()
+  Groupable 'Paused  = ()
+  Groupable other    =
+    TypeError
+      ( 'Text "group membership requires playing/paused channel; got "
+     ':<>: 'ShowType other )
+
 --- Smart Constructors
 load :: Audio s :> es => Source -> SoundType -> Eff es (s Loaded)
 load src stype = do
@@ -83,7 +101,7 @@ loadFile fp = load (FromFile fp)
 loadBytes :: Audio s :> es => BS.ByteString -> SoundType -> Eff es (s Loaded)
 loadBytes bs = load (FromBytes bs)
 
-unload :: Audio s :> es => s Loaded -> Eff es ()
+unload :: Audio s :> es => s Loaded -> Eff es (s Unloaded)
 unload sound = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.unloadA sound
@@ -94,9 +112,35 @@ resume channel = do
   unsafeEff_ $ backend.resumeA channel
 
 play :: Audio s :> es => s Loaded -> Times -> Eff es (s Playing)
-play sound times = do
+play sound t = do
+  let normTimes = normalizeTimes t
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.playA sound times
+  unsafeEff_ $ backend.playA sound normTimes
+
+mkGroup :: Audio s :> es => String -> Eff es (Group s)
+mkGroup name = do
+  AudioRep AudioBackend{ mkGroupA = f } <- getStaticRep
+  unsafeEff_ (f name)
+
+addToGroup :: (Audio s :> es, Groupable st) => Group s -> s st -> Eff es ()
+addToGroup group channel = do
+  AudioRep AudioBackend{ addToGroupA = addGroup} <- getStaticRep
+  unsafeEff_ (addGroup group channel)
+
+removeFromGroup :: (Audio s :> es, Groupable st) => Group s -> s st -> Eff es ()
+removeFromGroup group channel = do
+  AudioRep AudioBackend{ removeFromGroupA = removeGroup } <- getStaticRep
+  unsafeEff_ (removeGroup group channel)
+
+pauseGroup :: Audio s :> es => Group s -> Eff es ()
+pauseGroup group = do
+  AudioRep AudioBackend{ pauseGroupA = pGroup } <- getStaticRep
+  unsafeEff_ (pGroup group)
+
+resumeGroup :: Audio s :> es => Group s -> Eff es ()
+resumeGroup group = do
+  AudioRep AudioBackend{ resumeGroupA = resGroup } <- getStaticRep
+  unsafeEff_ (resGroup group)
 
 pause :: Audio s :> es => s Playing -> Eff es (s Paused)
 pause channel = do
@@ -167,3 +211,8 @@ defaultPanning = mkPanning 0.0
 
 defaultVolume :: Volume
 defaultVolume = mkVolume 1.0
+
+normalizeTimes :: Times -> Times
+normalizeTimes = \case
+  Times n | n < 1 -> Once
+  t               -> t

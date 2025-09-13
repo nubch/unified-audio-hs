@@ -38,6 +38,7 @@ data EnvSDL = EnvSDL {finishMap :: FinishMap, panMap :: PanMap}
 
 data SDLSound :: I.Status -> Type where
   LoadedSound  :: Mix.Chunk -> I.SoundType -> SDLSound I.Loaded
+  UnloadedSound :: SDLSound I.Unloaded
   PlayingSound :: Mix.Channel -> MVar () -> I.SoundType -> SDLSound I.Playing
   PausedSound  :: Mix.Channel -> MVar () -> I.SoundType -> SDLSound I.Paused
   StoppedSound :: Mix.Channel -> SDLSound I.Stopped
@@ -78,9 +79,10 @@ loadSDL src sType =
         decoded <- Mix.decode bytes
         pure $ LoadedSound decoded sType
 
-unloadSDL :: SDLSound I.Loaded -> IO ()
-unloadSDL (LoadedSound chunk _) =
+unloadSDL :: SDLSound I.Loaded -> IO (SDLSound I.Unloaded)
+unloadSDL (LoadedSound chunk _) = do
   Mix.free chunk
+  pure UnloadedSound
 
 ----------------------------------------------------------------
 -- Play / Pause / Resume / Stop / Status
@@ -226,7 +228,12 @@ makeBackendSDL env =
 
 runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a
 runAudio eff =
-  withEffToIO $ \runInIO ->
-    Mix.withAudio Mix.defaultAudio 4096 $ do
+  withEffToIO $ \runInIO -> do
+    let hiFi = Mix.Audio
+              { Mix.audioFrequency = 44100   
+              , Mix.audioFormat    = Mix.FormatS16_Sys
+              , Mix.audioOutput  = Mix.Stereo
+              }
+    Mix.withAudio hiFi 1024 $ do
       env <- initSDLEnv
       runInIO (evalStaticRep (I.AudioRep (makeBackendSDL env)) eff)

@@ -35,6 +35,7 @@ import qualified Data.Map.Strict as Map
 newtype System    = System  (ForeignPtr Raw.FMODSystem)
 newtype Sound     = Sound   (ForeignPtr Raw.FMODSound)
 newtype Channel   = Channel   (ForeignPtr Raw.FMODChannel)
+newtype ChannelGroup = ChannelGroup (ForeignPtr Raw.FMODChannelGroup)
 
 version :: CUInt
 version = 0x00020221
@@ -100,7 +101,7 @@ withSystem = bracket acquire release
       checkResult "InitSystem" =<< Raw.c_FMOD_System_Init system 512 0 nullPtr
       fp <- newForeignPtr c_FMOD_System_Release system
       pure (System fp)
-    release (System fp) = do 
+    release (System fp) = do
       finalizeForeignPtr fp   -- << run Release deterministically
 
 createSound :: System -> FilePath -> IO Sound
@@ -122,6 +123,47 @@ playSound (System sys) (Sound sound) =
     chPtr <- peek allocChan
     fp    <- newForeignPtr_ chPtr
     return (Channel fp)
+
+-- ChannelGroup: creation and control
+
+createChannelGroup :: System -> String -> IO ChannelGroup
+createChannelGroup (System sys) name =
+  withForeignPtr sys $ \pSys ->
+  withCString name   $ \cName ->
+  alloca             $ \allocGrp -> do
+    checkResult "CreateChannelGroup" =<< Raw.c_FMOD_System_CreateChannelGroup pSys cName allocGrp
+    grpPtr <- peek allocGrp
+    fp     <- newForeignPtr c_FMOD_ChannelGroup_Release grpPtr
+    pure (ChannelGroup fp)
+
+getMasterChannelGroup :: System -> IO ChannelGroup
+getMasterChannelGroup (System sys) =
+  withForeignPtr sys $ \pSys ->
+  alloca $ \allocGrp -> do
+    checkResult "GetMasterChannelGroup" =<< Raw.c_FMOD_System_GetMasterChannelGroup pSys allocGrp
+    grpPtr <- peek allocGrp
+    fp     <- newForeignPtr c_FMOD_ChannelGroup_Release grpPtr
+    pure (ChannelGroup fp)
+
+setChannelGroup :: Channel -> ChannelGroup -> IO ()
+setChannelGroup (Channel ch) (ChannelGroup grp) =
+  withForeignPtr ch  $ \pCh ->
+  withForeignPtr grp (checkResult "Channel_SetChannelGroup"
+   <=< Raw.c_FMOD_Channel_SetChannelGroup pCh)
+
+setGroupPaused :: ChannelGroup -> Bool -> IO ()
+setGroupPaused (ChannelGroup grp) paused =
+  withForeignPtr grp $ \pGrp ->
+    checkResult "ChannelGroup_SetPaused" =<< Raw.c_FMOD_ChannelGroup_SetPaused pGrp (fromBool paused)
+
+setGroupVolume :: ChannelGroup -> CFloat -> IO ()
+setGroupVolume (ChannelGroup grp) vol =
+  withForeignPtr grp $ \pGrp ->
+    checkResult "ChannelGroup_SetVolume" =<< Raw.c_FMOD_ChannelGroup_SetVolume pGrp vol
+
+stopGroup :: ChannelGroup -> IO ()
+stopGroup (ChannelGroup grp) =
+  withForeignPtr grp (checkResult "ChannelGroup_Stop" <=< Raw.c_FMOD_ChannelGroup_Stop)
 
 tryStopChannel :: Channel -> IO ()
 tryStopChannel (Channel ch) =
@@ -205,3 +247,6 @@ foreign import ccall safe "&FMOD_Sound_Release"
 
 foreign import ccall safe "FMOD_Channel_SetCallback"
   c_FMOD_Channel_SetCallback :: Ptr Raw.FMODChannel -> FunPtr ChannelCB -> IO Raw.FMOD_RESULT
+
+foreign import ccall safe "&FMOD_ChannelGroup_Release"
+  c_FMOD_ChannelGroup_Release :: FinalizerPtr Raw.FMODChannelGroup
