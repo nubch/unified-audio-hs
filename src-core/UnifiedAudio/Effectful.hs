@@ -19,7 +19,7 @@ import qualified Data.ByteString as BS
 
 data Source = FromFile FilePath | FromBytes BS.ByteString
 
-newtype Group (s :: Status -> Type) = GroupId Int 
+newtype Group (s :: Status -> Type) = GroupName String
 
 data Status = Loaded | Playing | Paused | Stopped | Unloaded
   deriving (Show, Eq)
@@ -50,11 +50,13 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
   , hasFinishedA   :: s 'Playing -> IO Bool
   , awaitFinishedA :: s 'Playing -> IO ()
   , unloadA        :: s 'Loaded  -> IO (s 'Unloaded)
-  , mkGroupA       :: String        -> IO (Group s)
+  , mkOrGetGroupA  :: String        -> IO (Group s)
   , addToGroupA    :: forall st. Groupable st => Group s -> s st -> IO ()
   , removeFromGroupA :: forall st. Groupable st => Group s -> s st -> IO ()
   , pauseGroupA    :: Group s -> IO ()
   , resumeGroupA   :: Group s -> IO ()
+  , setGroupVolumeA :: Group s -> Volume -> IO ()
+  , setGroupPanningA :: Group s -> Panning -> IO ()
   }
 
 type instance DispatchOf (Audio s) = Static WithSideEffects
@@ -117,9 +119,9 @@ play sound t = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.playA sound normTimes
 
-mkGroup :: Audio s :> es => String -> Eff es (Group s)
-mkGroup name = do
-  AudioRep AudioBackend{ mkGroupA = f } <- getStaticRep
+mkOrGetGroup :: Audio s :> es => String -> Eff es (Group s)
+mkOrGetGroup name = do
+  AudioRep AudioBackend{ mkOrGetGroupA = f } <- getStaticRep
   unsafeEff_ (f name)
 
 addToGroup :: (Audio s :> es, Groupable st) => Group s -> s st -> Eff es ()
@@ -141,6 +143,16 @@ resumeGroup :: Audio s :> es => Group s -> Eff es ()
 resumeGroup group = do
   AudioRep AudioBackend{ resumeGroupA = resGroup } <- getStaticRep
   unsafeEff_ (resGroup group)
+
+setGroupVolume :: Audio s :> es => Group s -> Volume -> Eff es ()
+setGroupVolume group vol = do
+  AudioRep AudioBackend{ setGroupVolumeA = setGV } <- getStaticRep
+  unsafeEff_ (setGV group vol)
+
+setGroupPanning :: Audio s :> es => Group s -> Panning -> Eff es ()
+setGroupPanning group pan = do
+  AudioRep AudioBackend{ setGroupPanningA = setGP } <- getStaticRep
+  unsafeEff_ (setGP group pan)
 
 pause :: Audio s :> es => s Playing -> Eff es (s Paused)
 pause channel = do

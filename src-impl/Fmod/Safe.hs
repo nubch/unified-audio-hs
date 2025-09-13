@@ -165,6 +165,11 @@ stopGroup :: ChannelGroup -> IO ()
 stopGroup (ChannelGroup grp) =
   withForeignPtr grp (checkResult "ChannelGroup_Stop" <=< Raw.c_FMOD_ChannelGroup_Stop)
 
+setGroupPanning :: ChannelGroup -> CFloat -> IO ()
+setGroupPanning (ChannelGroup grp) pan =
+  withForeignPtr grp $ \pGrp ->
+    checkResult "ChannelGroup_SetPan" =<< Raw.c_FMOD_ChannelGroup_SetPan pGrp pan
+
 tryStopChannel :: Channel -> IO ()
 tryStopChannel (Channel ch) =
   withForeignPtr ch $ \pCh -> do
@@ -188,8 +193,8 @@ setVolume (Channel channel) volume =
   withForeignPtr channel $ \pChannel ->
     checkResult "setVolume" =<< Raw.c_FMOD_Channel_SetVolume pChannel volume
 
-systemUpdate :: System -> Sound -> IO ()
-systemUpdate (System sys) (Sound _) =
+systemUpdate :: System -> IO ()
+systemUpdate (System sys) =
   withForeignPtr sys (checkResult "sysUpdate" <=< Raw.c_FMOD_System_Update)
 
 setPanning :: Channel -> CFloat -> IO ()

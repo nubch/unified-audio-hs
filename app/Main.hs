@@ -17,15 +17,15 @@ import Data.Char (GeneralCategory(ModifierLetter))
 import Fmod.Safe (stopChannel)
 
 main :: IO ()
-main = runEff $ Fmod.runAudio groupTest
+main = runEff $ Fmod.runAudio test
 
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
   
   bytes <- unsafeEff_ (BS.readFile "sounds/example.wav")
   wav <- loadBytes bytes Mono
-  playing <- play wav (Times 1)
-  g <- mkGroup "music"
+  playing <- play wav (Times 5)
+  awaitFinished playing
   pure ()
 
   where
@@ -41,35 +41,66 @@ groupTest = do
   s2 <- loadBytes mp3B Stereo
 
   write "Playing both (Forever)"
-  c1 <- play s1 Forever
-  c2 <- play s2 Forever
+  move <- play s1 Forever
+  flim <- play s2 Forever
 
-  write "Creating group G and adding channels"
-  g <- mkGroup "G"
-  addToGroup g c1
-  addToGroup g c2
-  wait 5
-  write "Pause group (both should pause)"
-  pauseGroup g
+  write "mkOrGetGroup: create or get named group 'SFX'"
+  g1 <- mkOrGetGroup "SFX"
+  addToGroup g1 move
+  addToGroup g1 flim
+  wait 3
+  write "Pan group left, then right, then center"
+  setGroupPanning g1 (mkPanning (-1))
+  wait 1
+  setGroupPanning g1 (mkPanning 1)
+  wait 1
+  setGroupPanning g1 (mkPanning 0)
+  wait 1
+  write "Set group volume to 0.3 (both attenuated)"
+  setGroupVolume g1 (mkVolume 0.3)
+  wait 2
+  write "Restore group volume to 1.0"
+  setGroupVolume g1 (mkVolume 1.0)
+  wait 1
+  write "mkOrGetGroup again for 'SFX' (same underlying group)"
+  gAgain <- mkOrGetGroup "SFX"
+
+  write "Pause group via second handle (both should pause)"
+  pauseGroup gAgain
   wait 2
 
-  write "Attempt resume c1 only while group paused (should remain effectively paused)"
-  c1' <- resume =<< pause c1 
-  let _ = c1'
+  write "Attempt resume move only while group paused (should remain effectively paused)"
+  move' <- resume =<< pause move 
+  let _ = move'
   wait 2
 
   write "Resume group (both should play)"
-  resumeGroup g
+  resumeGroup g1
   wait 3
 
-  write "Remove c2 from group and pause group (only c1 should pause)"
-  removeFromGroup g c2
-  pauseGroup g
+  write "Remove flim from group and pause group (only move should pause)"
+  removeFromGroup g1 flim
+  pauseGroup g1
+  wait 1
+
+  write "Create or get new named group 'SFX-2' and move flim there"
+  wait 2
+  g2 <- mkOrGetGroup "SFX-2"
+  wait 2
+  addToGroup g2 flim
+  wait 2
+  write "Pause 'SFX-2' (only flim should pause now)"
+  wait 2
+  pauseGroup g2
+  resumeGroup g1
+  wait 8
+  write "Resume 'SFX-2'"
+  resumeGroup g2
   wait 2
 
   write "Cleanup: stop both"
-  _ <- stop c1
-  _ <- stop c2
+  _ <- stop move
+  _ <- stop flim
   write "Group test complete"
   where
     write = liftIO . putStrLn

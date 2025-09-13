@@ -15,6 +15,7 @@ import Control.Concurrent.MVar
 import Control.Monad (void)
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
 -- effectful
 import Effectful (IOE, type (:>), Eff, withEffToIO)
@@ -34,7 +35,15 @@ type FinishMap = MVar (Map.Map Mix.Channel (MVar ()))
 
 type PanMap = MVar (Map.Map Mix.Channel I.Panning)
 
-data EnvSDL = EnvSDL {finishMap :: FinishMap, panMap :: PanMap}
+data GroupSDL = GroupSDL { gPaused :: !Bool, gMembers :: !(Set.Set Mix.Channel) }
+
+type GroupMap = MVar (Map.Map String GroupSDL)
+
+data EnvSDL = EnvSDL
+  { finishMap   :: FinishMap
+  , panMap      :: PanMap
+  , groupMap    :: GroupMap
+  }
 
 data SDLSound :: I.Status -> Type where
   LoadedSound  :: Mix.Chunk -> I.SoundType -> SDLSound I.Loaded
@@ -51,6 +60,7 @@ initSDLEnv :: IO EnvSDL
 initSDLEnv = do
   pMap   <- newMVar Map.empty
   finMap <- newMVar Map.empty
+  gMap   <- newMVar Map.empty
   Mix.whenChannelFinished $ \ch -> do
     modifyMVar_ finMap $ \m ->
       case Map.lookup ch m of
@@ -59,7 +69,11 @@ initSDLEnv = do
           pure (Map.delete ch m)
         Nothing   -> pure m
     modifyMVar_ pMap $ \pm -> pure (Map.delete ch pm)
-  pure EnvSDL { finishMap = finMap, panMap = pMap }
+    -- prune from all groups
+    modifyMVar_ gMap $ \gm ->
+      let prune gr = gr { gMembers = Set.delete ch (gMembers gr) }
+      in pure (Map.map prune gm)
+  pure EnvSDL { finishMap = finMap, panMap = pMap, groupMap = gMap }
 
 
 ----------------------------------------------------------------
@@ -67,7 +81,7 @@ initSDLEnv = do
 ----------------------------------------------------------------
 
 loadSDL :: I.Source -> I.SoundType -> IO (SDLSound I.Loaded)
-loadSDL src sType = 
+loadSDL src sType =
   case src of
     I.FromFile fp  -> loadFromFile fp
     I.FromBytes by -> loadFromBytes by
@@ -94,7 +108,7 @@ playSDL env (LoadedSound loaded sType) times = do
   done    <- newEmptyMVar
   modifyMVar_ env.finishMap $ \m -> pure $ Map.insert channel done m
   modifyMVar_ env.panMap   $ \pm -> pure $ Map.insert channel (I.mkPanning 0) pm
-  
+
   -- Reset pan and volume if channel gets reused
   let playingChannel = PlayingSound channel done sType
   setPanningSDL env playingChannel I.defaultPanning
@@ -124,6 +138,9 @@ stopSDL env stoppable =
       Mix.halt channel
       modifyMVar_ env.finishMap $ \m  -> pure (Map.delete channel m)
       modifyMVar_ env.panMap    $ \pm -> pure (Map.delete channel pm)
+      modifyMVar_ env.groupMap  $ \gm ->
+        let prune gr = gr { gMembers = Set.delete channel (gMembers gr) }
+        in pure (Map.map prune gm)
       _ <- tryPutMVar finished ()
       return (StoppedSound channel)
 
@@ -224,16 +241,104 @@ makeBackendSDL env =
     , I.unloadA        = unloadSDL
     , I.hasFinishedA   = hasFinishedSDL
     , I.awaitFinishedA = awaitFinishedSDL
+    , I.mkOrGetGroupA  = mkOrGetGroupSDL env
+    , I.addToGroupA    = addToGroupSDL env
+    , I.removeFromGroupA = removeFromGroupSDL env
+    , I.pauseGroupA    = pauseGroupSDL env
+    , I.resumeGroupA   = resumeGroupSDL env
+    , I.setGroupVolumeA = setGroupVolumeSDL env
+    , I.setGroupPanningA = setGroupPanningSDL env
     }
 
 runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a
 runAudio eff =
   withEffToIO $ \runInIO -> do
     let hiFi = Mix.Audio
-              { Mix.audioFrequency = 44100   
+              { Mix.audioFrequency = 44100
               , Mix.audioFormat    = Mix.FormatS16_Sys
               , Mix.audioOutput  = Mix.Stereo
               }
     Mix.withAudio hiFi 1024 $ do
       env <- initSDLEnv
       runInIO (evalStaticRep (I.AudioRep (makeBackendSDL env)) eff)
+
+----------------------------------------------------------------
+-- Groups (SDL)
+----------------------------------------------------------------
+
+mkGroupSDL :: EnvSDL -> String -> IO (I.Group SDLSound)
+mkGroupSDL env name = do
+  modifyMVar_ env.groupMap $ \gm ->
+    let g = GroupSDL { gPaused = False, gMembers = Set.empty }
+    in pure (Map.insert name g gm)
+  pure (I.GroupName name)
+
+mkOrGetGroupSDL :: EnvSDL -> String -> IO (I.Group SDLSound)
+mkOrGetGroupSDL env name = do
+  gm <- readMVar env.groupMap
+  case Map.lookup name gm of
+    Just _ -> pure (I.GroupName name)
+    Nothing  -> mkGroupSDL env name
+
+addToGroupSDL :: forall st. I.Groupable st => EnvSDL -> I.Group SDLSound -> SDLSound st -> IO ()
+addToGroupSDL env (I.GroupName name) s = do
+  ch <- case s of
+    PlayingSound c _ _ -> pure c
+    PausedSound  c _ _ -> pure c
+  modifyMVar_ env.groupMap $ \gm -> case Map.lookup name gm of
+    Nothing -> pure gm
+    Just gr -> do
+      let gr' = gr { gMembers = Set.insert ch (gMembers gr) }
+      pure (Map.insert name gr' gm)
+  -- If group paused, immediately pause the channel
+  gm <- readMVar env.groupMap
+  case Map.lookup name gm of
+    Just GroupSDL{ gPaused = True } -> Mix.pause ch
+    _ -> pure ()
+
+removeFromGroupSDL :: forall st. I.Groupable st => EnvSDL -> I.Group SDLSound -> SDLSound st -> IO ()
+removeFromGroupSDL env (I.GroupName name) s = do
+  ch <- case s of
+    PlayingSound c _ _ -> pure c
+    PausedSound  c _ _ -> pure c
+  modifyMVar_ env.groupMap $ \gm -> case Map.lookup name gm of
+    Nothing -> pure gm
+    Just gr -> do
+      let gr' = gr { gMembers = Set.delete ch (gMembers gr) }
+      pure (Map.insert name gr' gm)
+
+pauseGroupSDL :: EnvSDL -> I.Group SDLSound -> IO ()
+pauseGroupSDL env (I.GroupName name) = do
+  modifyMVar_ env.groupMap $ \gm -> case Map.lookup name gm of
+    Nothing -> pure gm
+    Just gr -> do
+      mapM_ Mix.pause (Set.toList (gMembers gr))
+      pure (Map.insert name gr{ gPaused = True } gm)
+
+resumeGroupSDL :: EnvSDL -> I.Group SDLSound -> IO ()
+resumeGroupSDL env (I.GroupName name) = do
+  modifyMVar_ env.groupMap $ \gm -> case Map.lookup name gm of
+    Nothing -> pure gm
+    Just gr -> do
+      mapM_ Mix.resume (Set.toList (gMembers gr))
+      pure (Map.insert name gr{ gPaused = False } gm)
+
+-- Note: SDL Mixer has no group volume; we approximate by setting member volumes directly.
+setGroupVolumeSDL :: EnvSDL -> I.Group SDLSound -> I.Volume -> IO ()
+setGroupVolumeSDL env (I.GroupName name) vol = do
+  gm <- readMVar env.groupMap
+  case Map.lookup name gm of
+    Nothing -> pure ()
+    Just gr -> do
+      let v = toSDLVolume vol
+      mapM_ (Mix.setVolume v) (Set.toList (gMembers gr))
+
+-- Approximate group panning by applying stereo balance to members.
+setGroupPanningSDL :: EnvSDL -> I.Group SDLSound -> I.Panning -> IO ()
+setGroupPanningSDL env (I.GroupName name) pan = do
+  gm <- readMVar env.groupMap
+  case Map.lookup name gm of
+    Nothing -> pure ()
+    Just gr -> do
+      let (l, r) = toSDLPanningStereo (I.unPanning pan)
+      mapM_ (\ch -> void (Mix.effectPan ch l r)) (Set.toList (gMembers gr))
