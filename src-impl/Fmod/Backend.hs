@@ -8,7 +8,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use join" #-}
 
-module Fmod.Backend (runAudio) where
+module Fmod.Backend (runAudio, runAudioWith, UpdateMode(..)) where
 
 ----------------------------------------------------------------
 -- Imports
@@ -31,6 +31,7 @@ import Control.Concurrent
 
 -- Concurrency / system
 import Control.Exception ( mask, finally )
+import Control.Monad (forever)
 import Control.Concurrent.MVar
     ( MVar,
       modifyMVar_,
@@ -43,12 +44,15 @@ import Control.Concurrent.MVar
       newMVar )
 import Fmod.Safe (setLoopCount)
 import System.IO (hFlush, stdout)
+import GHC.Float (properFractionDouble)
 
 ----------------------------------------------------------------
 -- Types
 ----------------------------------------------------------------
 
 type GroupMap = MVar (Map.Map String Safe.ChannelGroup)
+
+data UpdateMode = AutoHz Int | ManualTick (MVar ())
 
 data EnvFMOD = EnvFMOD
   { system      :: Safe.System
@@ -214,8 +218,8 @@ makeBackendFmod env =
       I.setGroupPanningA = setGroupPanningFmod env
     }
 
-runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a
-runAudio eff =
+runAudioWith :: (IOE :> es) => UpdateMode -> Eff (I.Audio FmodState : es) a -> Eff es a
+runAudioWith upMode eff =
   withEffToIO $ \runInIO ->
     -- All FMOD lifetime in one scope:
     Safe.withSystem $ \sys -> mask $ \restore -> do
@@ -231,14 +235,21 @@ runAudio eff =
                             }
           backend = makeBackendFmod env
           runApp  = runInIO (evalStaticRep (I.AudioRep backend) eff)
-      pumpTid <- forkIO $ let loop = Safe.systemUpdate sys >> threadDelay 20000 >> loop in loop
-
+      pumpTid <- case upMode of
+        AutoHz hz -> do
+          let period = max 1 (1000000 `div` hz)
+          forkIO $ forever $ Safe.systemUpdate sys >> threadDelay period 
+        ManualTick tick ->
+          forkIO $ forever $ takeMVar tick >> Safe.systemUpdate sys
 
       restore runApp `finally` do
         Safe.drainActive env.finishMap  -- setCallback NULL on any tracked channels
         killThread pumpTid
         hFlush stdout
         freeHaskellFunPtr cb
+
+runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a
+runAudio = runAudioWith (AutoHz 60)
 
 ----------------------------------------------------------------
 -- Groups (FMOD)
