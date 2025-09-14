@@ -14,10 +14,10 @@ import qualified SDL.Backend as SDL
 import qualified Fmod.Backend as Fmod
 import qualified Data.ByteString as BS
 import Data.Char (GeneralCategory(ModifierLetter))
-import Fmod.Safe (stopChannel)
+import Fmod.Safe (stopChannel, stopGroup)
 
 main :: IO ()
-main = runEff $ Fmod.runAudio test
+main = runEff $ Fmod.runAudio groupTest
 
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
@@ -64,6 +64,7 @@ groupTest = do
   wait 1
   write "mkOrGetGroup again for 'SFX' (same underlying group)"
   gAgain <- mkOrGetGroup "SFX"
+  stop flim
 
   write "Pause group via second handle (both should pause)"
   pauseGroup gAgain

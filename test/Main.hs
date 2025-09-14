@@ -23,6 +23,18 @@ main = hspec $ do
       runEff $ Fmod.runAudio TP.tp1
       runEff $ SDL.runAudio TP.tp1
 
+  describe "TP7: Group Demo" $ do
+    it "runs on FMOD and SDL" $ do
+      runEff $ Fmod.runAudio TP.tp7
+      runEff $ SDL.runAudio TP.tp7
 
+  describe "TP8: Equal panning/volume semantics" $ do
+    it "returns base values on both backends" $ do
+      runEff $ Fmod.runAudio TP.tp8
+      runEff $ SDL.runAudio TP.tp8
 
+  describe "TP9: Group Pause OR Semantics" $ do
+    it "respects channel||group on both backends" $ do
+      runEff $ Fmod.runAudio TP.tp9
+      runEff $ SDL.runAudio TP.tp9
 

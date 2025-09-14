@@ -41,18 +41,18 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
   , pauseA         :: s 'Playing -> IO (s 'Paused)
   , resumeA        :: s 'Paused  -> IO (s 'Playing)
 
-  , setVolumeA     :: forall st. Adjustable st => s st -> Volume  -> IO ()
-  , getVolumeA     :: forall ad. Adjustable ad => s ad -> IO Volume
-  , setPanningA    :: forall st. Adjustable st => s st -> Panning -> IO ()
-  , getPanningA    :: forall ad. Adjustable ad => s ad -> IO Panning
-  , stopChannelA   :: forall st. Stoppable  st => s st -> IO (s 'Stopped)
+  , setVolumeA     :: forall alive. Alive      alive => s alive -> Volume  -> IO ()
+  , getVolumeA     :: forall alive. Alive      alive => s alive -> IO Volume
+  , setPanningA    :: forall alive. Alive      alive => s alive -> Panning -> IO ()
+  , getPanningA    :: forall alive. Alive      alive => s alive -> IO Panning
+  , stopChannelA   :: forall alive. Alive      alive => s alive -> IO (s 'Stopped)
 
   , hasFinishedA   :: s 'Playing -> IO Bool
   , awaitFinishedA :: s 'Playing -> IO ()
   , unloadA        :: s 'Loaded  -> IO (s 'Unloaded)
   , mkOrGetGroupA  :: String        -> IO (Group s)
-  , addToGroupA    :: forall st. Groupable st => Group s -> s st -> IO ()
-  , removeFromGroupA :: forall st. Groupable st => Group s -> s st -> IO ()
+  , addToGroupA    :: forall alive. Alive      alive => Group s -> s alive -> IO ()
+  , removeFromGroupA :: forall alive. Alive    alive => Group s -> s alive -> IO ()
   , pauseGroupA    :: Group s -> IO ()
   , resumeGroupA   :: Group s -> IO ()
   , setGroupVolumeA :: Group s -> Volume -> IO ()
@@ -66,29 +66,13 @@ newtype Volume = Volume Float deriving (Show, Eq) -- Only values between 0 and 1
 
 newtype Panning = Panning Float deriving (Show, Eq)
 
-type family Stoppable (st :: Status) :: Constraint where
-  Stoppable 'Playing = ()
-  Stoppable 'Paused  = ()
-  Stoppable other    =
+-- Single constraint family for operations on active channels (playing/paused)
+type family Alive (st :: Status) :: Constraint where
+  Alive 'Playing = ()
+  Alive 'Paused  = ()
+  Alive other    =
     TypeError
-      ( 'Text "operation requires a stoppable channel; got "
-     ':<>: 'ShowType other )
-
-type family Adjustable (st :: Status) :: Constraint where
-  Adjustable 'Playing = ()
-  Adjustable 'Paused  = ()
-  Adjustable other    =
-    TypeError
-      ( 'Text "operation requires an adjustable channel; got "
-     ':<>: 'ShowType other )
-
--- Channels eligible for group membership/ops
-type family Groupable (st :: Status) :: Constraint where
-  Groupable 'Playing = ()
-  Groupable 'Paused  = ()
-  Groupable other    =
-    TypeError
-      ( 'Text "group membership requires playing/paused channel; got "
+      ( 'Text "operation requires a playing or paused channel; got "
      ':<>: 'ShowType other )
 
 --- Smart Constructors
@@ -124,12 +108,12 @@ mkOrGetGroup name = do
   AudioRep AudioBackend{ mkOrGetGroupA = f } <- getStaticRep
   unsafeEff_ (f name)
 
-addToGroup :: (Audio s :> es, Groupable st) => Group s -> s st -> Eff es ()
+addToGroup :: (Audio s :> es, Alive alive) => Group s -> s alive -> Eff es ()
 addToGroup group channel = do
   AudioRep AudioBackend{ addToGroupA = addGroup} <- getStaticRep
   unsafeEff_ (addGroup group channel)
 
-removeFromGroup :: (Audio s :> es, Groupable st) => Group s -> s st -> Eff es ()
+removeFromGroup :: (Audio s :> es, Alive alive) => Group s -> s alive -> Eff es ()
 removeFromGroup group channel = do
   AudioRep AudioBackend{ removeFromGroupA = removeGroup } <- getStaticRep
   unsafeEff_ (removeGroup group channel)
@@ -159,30 +143,30 @@ pause channel = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.pauseA channel
 
-stop :: (Audio s :> es, Stoppable st) => s st -> Eff es (s 'Stopped)
+stop :: (Audio s :> es, Alive alive) => s alive -> Eff es (s 'Stopped)
 stop channel = do
   AudioRep AudioBackend{ stopChannelA = stop' } <- getStaticRep
   unsafeEff_ (stop' channel)
 
-setVolume :: (Audio s :> es, Adjustable st) => s st -> Volume -> Eff es ()
+setVolume :: (Audio s :> es, Alive alive) => s alive -> Volume -> Eff es ()
 setVolume channel volume = do
   AudioRep AudioBackend{ setVolumeA = setVol } <- getStaticRep
   unsafeEff_ (setVol channel volume)
 
-getVolume :: (Audio s :> es, Adjustable st) => s st -> Eff es Volume
+getVolume :: (Audio s :> es, Alive alive) => s alive -> Eff es Volume
 getVolume channel = do
   AudioRep AudioBackend{ getVolumeA = getVol } <- getStaticRep
   unsafeEff_ (getVol channel)
 
-mute :: (Audio s :> es, Adjustable st) => s st -> Eff es ()
+mute :: (Audio s :> es, Alive alive) => s alive -> Eff es ()
 mute channel = setVolume channel (mkVolume 0.0)
 
-setPanning :: (Audio s :> es, Adjustable st) => s st -> Panning -> Eff es ()
+setPanning :: (Audio s :> es, Alive alive) => s alive -> Panning -> Eff es ()
 setPanning channel panning = do
   AudioRep AudioBackend{ setPanningA = setPan } <- getStaticRep
   unsafeEff_ (setPan channel panning)
 
-getPanning :: (Audio s :> es, Adjustable st) => s st -> Eff es Panning
+getPanning :: (Audio s :> es, Alive alive) => s alive -> Eff es Panning
 getPanning channel = do
   AudioRep AudioBackend{ getPanningA = getPan } <- getStaticRep
   unsafeEff_ (getPan channel)

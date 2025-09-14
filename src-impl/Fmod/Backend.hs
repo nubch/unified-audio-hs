@@ -130,7 +130,7 @@ resumeFmod (PausedSound channel finished sound) = do
   ch <- setPausedFmod False channel
   pure (PlayingSound ch finished sound)
 
-stopChannelFmod :: forall st. I.Stoppable st => EnvFMOD -> FmodState st -> IO (FmodState I.Stopped)
+stopChannelFmod :: forall alive. I.Alive alive => EnvFMOD -> FmodState alive -> IO (FmodState I.Stopped)
 stopChannelFmod env stoppable = do
   case stoppable of
     (PlayingSound channel finished _) -> stop channel finished
@@ -157,7 +157,7 @@ awaitFinishedFmod (PlayingSound _ finished _) =
 -- Volume / Panning
 ----------------------------------------------------------------
 
-setVolumeFmod :: forall adj. I.Adjustable adj => FmodState adj -> I.Volume -> IO ()
+setVolumeFmod :: forall alive. I.Alive alive => FmodState alive -> I.Volume -> IO ()
 setVolumeFmod adjustable volume =
   case adjustable of
     (PlayingSound playing _ _) -> setVolume playing volume
@@ -165,7 +165,7 @@ setVolumeFmod adjustable volume =
   where
     setVolume ch vol = Safe.setVolume ch (realToFrac $ I.unVolume vol)
 
-setPanningFmod :: forall adj. I.Adjustable adj => EnvFMOD -> FmodState adj -> I.Panning -> IO ()
+setPanningFmod :: forall alive. I.Alive alive => EnvFMOD -> FmodState alive -> I.Panning -> IO ()
 setPanningFmod env adjustable panning =
   case adjustable of
     (PlayingSound playing _ _) -> setPanning playing panning
@@ -176,12 +176,12 @@ setPanningFmod env adjustable panning =
       Safe.withChannelPtr ch $ \pCh ->
         modifyMVar_ env.panMap $ pure . Map.adjust (const pan) pCh
 
-getVolumeFmod :: forall st. I.Adjustable st => FmodState st -> IO I.Volume
+getVolumeFmod :: forall alive. I.Alive alive => FmodState alive -> IO I.Volume
 getVolumeFmod s = case s of
   (PlayingSound ch _ _) -> I.mkVolume <$> Safe.getChannelVolume ch
   (PausedSound  ch _ _) -> I.mkVolume <$> Safe.getChannelVolume ch
 
-getPanningFmod :: forall st. EnvFMOD -> I.Adjustable st => FmodState st -> IO I.Panning
+getPanningFmod :: forall alive. EnvFMOD -> I.Alive alive => FmodState alive -> IO I.Panning
 getPanningFmod env s = case s of
   (PlayingSound ch _ _) -> getPan ch
   (PausedSound  ch _ _) -> getPan ch
@@ -268,7 +268,7 @@ mkOrGetGroupFmod env name = do
     Just _ -> pure (I.GroupName name)
     Nothing  -> mkGroupFmod env name
 
-addToGroupFmod :: forall st. I.Groupable st => EnvFMOD -> I.Group FmodState -> FmodState st -> IO ()
+addToGroupFmod :: forall alive. I.Alive alive => EnvFMOD -> I.Group FmodState -> FmodState alive -> IO ()
 addToGroupFmod env (I.GroupName name) s = do
   gm <- readMVar env.groupMap
   case Map.lookup name gm of
@@ -277,7 +277,7 @@ addToGroupFmod env (I.GroupName name) s = do
       PlayingSound ch _ _ -> Safe.setChannelGroup ch grp
       PausedSound  ch _ _ -> Safe.setChannelGroup ch grp
 
-removeFromGroupFmod :: forall st. I.Groupable st => EnvFMOD -> I.Group FmodState -> FmodState st -> IO ()
+removeFromGroupFmod :: forall alive. I.Alive alive => EnvFMOD -> I.Group FmodState -> FmodState alive -> IO ()
 removeFromGroupFmod env _ s = do
   master <- Safe.getMasterChannelGroup env.system
   case s of

@@ -67,7 +67,6 @@ setupFMODEnv = do
   stateMap  <- newMVar Map.empty
   callback  <- mkChannelCallback $ \channelControl _controlType callbackType _ _-> do
     when (callbackType == 0) $ do
-      putStrLn "Je suis finished"  -- FMOD_CHANNEL_CALLBACKTYPE_END
       let pChannel = castPtr channelControl :: Ptr Raw.FMODChannel
       modifyMVar_ finishMap $ \finMap ->
         case Map.lookup pChannel finMap of
