@@ -14,17 +14,23 @@ import qualified SDL.Backend as SDL
 import qualified Fmod.Backend as Fmod
 import qualified Data.ByteString as BS
 import Data.Char (GeneralCategory(ModifierLetter))
-import Fmod.Safe (stopChannel, stopGroup)
+--import Fmod.Safe (stopChannel, stopGroup, setGroupPanning, setPanning)
 
 main :: IO ()
-main = runEff $ Fmod.runAudio groupTest
+main = runEff $ SDL.runAudio test
 
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
   
   bytes <- unsafeEff_ (BS.readFile "sounds/example.wav")
   wav <- loadBytes bytes Mono
-  playing <- play wav (Times 5)
+  playing <- play wav Forever
+  setPanning playing (mkPanning (-0.5))
+  group <- mkOrGetGroup "gr"
+  setGroupPanning group (mkPanning (-0.5))
+  wait 3
+  liftIO $ putStrLn "aded"
+  addToGroup group playing
   awaitFinished playing
   pure ()
 

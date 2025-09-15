@@ -47,6 +47,7 @@ data GroupSDL = GroupSDL
   }
 
 type GroupMap = MVar (Map.Map String GroupSDL)
+type ChanGroupMap = MVar (Map.Map Mix.Channel String) -- reverse index: channel -> group name
 
 data EnvSDL = EnvSDL
   { finishMap   :: FinishMap
@@ -55,6 +56,7 @@ data EnvSDL = EnvSDL
   , pauseMap    :: PauseMap
   , typeMap     :: TypeMap
   , groupMap    :: GroupMap
+  , chanGroupMap :: ChanGroupMap
   }
 
 data SDLSound :: I.Status -> Type where
@@ -76,6 +78,7 @@ initSDLEnv = do
   tMap   <- newMVar Map.empty
   finMap <- newMVar Map.empty
   gMap   <- newMVar Map.empty
+  cgMap  <- newMVar Map.empty
   Mix.whenChannelFinished $ \ch -> do
     modifyMVar_ finMap $ \m ->
       case Map.lookup ch m of
@@ -87,6 +90,7 @@ initSDLEnv = do
     modifyMVar_ vMap  $ \vm -> pure (Map.delete ch vm)
     modifyMVar_ paMap $ \pm -> pure (Map.delete ch pm)
     modifyMVar_ tMap  $ \tm -> pure (Map.delete ch tm)
+    modifyMVar_ cgMap $ \cgm -> pure (Map.delete ch cgm)
     -- prune from all groups
     modifyMVar_ gMap $ \gm ->
       let prune gr = gr { gMembers = Set.delete ch (gMembers gr) }
@@ -97,6 +101,7 @@ initSDLEnv = do
               , pauseMap = paMap
               , typeMap = tMap
               , groupMap = gMap
+              , chanGroupMap = cgMap
               }
 
 
@@ -175,6 +180,7 @@ stopSDL env stoppable =
       modifyMVar_ env.volMap    $ \vm -> pure (Map.delete channel vm)
       modifyMVar_ env.pauseMap  $ \pm -> pure (Map.delete channel pm)
       modifyMVar_ env.typeMap   $ \tm -> pure (Map.delete channel tm)
+      modifyMVar_ env.chanGroupMap $ \cgm -> pure (Map.delete channel cgm)
       modifyMVar_ env.groupMap  $ \gm ->
         let prune gr = gr { gMembers = Set.delete channel (gMembers gr) }
         in pure (Map.map prune gm)
@@ -227,13 +233,17 @@ setPanningSDL env adjustable pan =
     setPan channel sType = do
       -- store base pan
       modifyMVar_ env.panMap $ \pm -> pure $ Map.insert channel pan pm
-      -- recompute effective pan = clamp(base + group)
+      -- recompute effective pan by multiplying L/R gains from base and group
       gPan <- getGroupPanningForChannel env channel
-      let x      = I.unPanning (addPanning pan gPan)
-          (l, r) = case sType of
-                     I.Mono   -> toSDLPanningMono   x  -- equal-power (mono→stereo)
-                     I.Stereo -> toSDLPanningStereo x  -- balance (tilt)
-      void $ Mix.effectPan channel l r
+      let (lBase, rBase) = case sType of
+                             I.Mono   -> panGainsMono   (I.unPanning pan)
+                             I.Stereo -> panGainsStereo (I.unPanning pan)
+          (lGrp,  rGrp)  = case sType of
+                             I.Mono   -> panGainsMono   (I.unPanning gPan)
+                             I.Stereo -> panGainsStereo (I.unPanning gPan)
+          lEff = round (128 * clamp01 (lBase * lGrp))
+          rEff = round (128 * clamp01 (rBase * rGrp))
+      void $ Mix.effectPan channel lEff rEff
 
 getPanningSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> IO I.Panning
 getPanningSDL env adjustable =
@@ -249,28 +259,28 @@ getPanningSDL env adjustable =
 mulVolume :: I.Volume -> I.Volume -> I.Volume
 mulVolume a b = I.mkVolume (I.unVolume a * I.unVolume b)
 
-addPanning :: I.Panning -> I.Panning -> I.Panning
-addPanning a b = I.mkPanning (I.unPanning a + I.unPanning b)
+-- Convert pan in [-1,1] to per-side gains (0..1)
+panGainsStereo :: Float -> (Float, Float)
+panGainsStereo x0 =
+  let x = max (-1) (min 1 x0)
+      l = 1 - max 0 x      -- reduce LEFT only when panning right
+      r = 1 + min 0 x      -- reduce RIGHT only when panning left
+  in (l, r)                -- center => (1,1)
+
+panGainsMono :: Float -> (Float, Float)
+panGainsMono x0 =
+  let x  = max (-1) (min 1 x0)
+      gL = sqrt ((1 - x) / 2)  -- equal-power
+      gR = sqrt ((1 + x) / 2)
+  in (gL, gR)
+
+clamp01 :: Float -> Float
+clamp01 = max 0 . min 1
 
 toSDLVolume :: I.Volume -> Int
 toSDLVolume vol = round (volume * 128)
   where
     volume = I.unVolume vol
-
--- 0..128 per side (128 = full). effectPan doubles internally to 0..255.
-toSDLPanningStereo :: Float -> (Int, Int)
-toSDLPanningStereo x0 =
-  let x = max (-1) (min 1 x0)
-      l = round (128 * (1 - max 0 x))   -- reduce LEFT only when panning right
-      r = round (128 * (1 + min 0 x))   -- reduce RIGHT only when panning left
-  in (l, r)                             -- center => (128,128)
-
-toSDLPanningMono :: Float -> (Int, Int)
-toSDLPanningMono x0 =
-  let x  = max (-1) (min 1 x0)
-      gL = sqrt ((1 - x) / 2)           -- ≈0.707 at center (−3 dB/side)
-      gR = sqrt ((1 + x) / 2)
-  in ( round (128 * gL), round (128 * gR) )
 
 ----------------------------------------------------------------
 -- Backend wiring / Runner
@@ -348,6 +358,8 @@ addToGroupSDL env (I.GroupName name) s = do
       -- add channel to the target group's membership set
       let gmUpdated = Map.adjust (\gr -> gr { gMembers = Set.insert ch (gMembers gr) }) name gmCleared
       pure gmUpdated
+  -- update reverse index with exclusive membership
+  modifyMVar_ env.chanGroupMap $ \cgm -> pure (Map.insert ch name cgm)
   -- Apply group bus settings to the channel and correct pause state
   applyEffectiveForChannel env ch
   applyPauseState env ch
@@ -362,6 +374,8 @@ removeFromGroupSDL env (I.GroupName name) s = do
     Just gr -> do
       let gr' = gr { gMembers = Set.delete ch (gMembers gr) }
       pure (Map.insert name gr' gm)
+  -- remove reverse index entry since membership is exclusive
+  modifyMVar_ env.chanGroupMap $ \cgm -> pure (Map.delete ch cgm)
   -- Re-apply effective settings (likely reverting to base settings)
   applyEffectiveForChannel env ch
   applyPauseState env ch
@@ -416,6 +430,20 @@ setGroupPanningSDL env (I.GroupName name) pan = do
     Nothing -> pure ()
     Just gr -> mapM_ (applyEffectiveForChannel env) (Set.toList (gMembers gr))
 
+getGroupVolumeSDL :: EnvSDL -> I.Group SDLSound -> IO I.Volume
+getGroupVolumeSDL env (I.GroupName name) = do
+  gm <- readMVar env.groupMap
+  case Map.lookup name gm of
+    Nothing -> pure I.defaultVolume
+    Just gr -> pure (gVolume gr)
+
+getGroupPanningSDL :: EnvSDL -> I.Group SDLSound -> IO I.Panning
+getGroupPanningSDL env (I.GroupName name) = do
+  gm <- readMVar env.groupMap
+  case Map.lookup name gm of
+    Nothing -> pure I.defaultPanning
+    Just gr -> pure (gPanning gr)
+
 ----------------------------------------------------------------
 -- Internal helpers: effective state application
 ----------------------------------------------------------------
@@ -427,15 +455,19 @@ applyEffectiveForChannel env ch = do
   baseV <- Map.findWithDefault I.defaultVolume ch <$> readMVar env.volMap
   gVol  <- getGroupVolumeForChannel env ch
   Mix.setVolume (toSDLVolume (mulVolume baseV gVol)) ch
-  -- panning
+  -- panning: multiply L/R gains from base and group
   baseP <- Map.findWithDefault I.defaultPanning ch <$> readMVar env.panMap
   gPan  <- getGroupPanningForChannel env ch
   sType <- Map.findWithDefault I.Stereo ch <$> readMVar env.typeMap
-  let panX = I.unPanning (addPanning baseP gPan)
-      (l, r) = case sType of
-                 I.Mono   -> toSDLPanningMono panX
-                 I.Stereo -> toSDLPanningStereo panX
-  void $ Mix.effectPan ch l r
+  let (lBase, rBase) = case sType of
+                         I.Mono   -> panGainsMono   (I.unPanning baseP)
+                         I.Stereo -> panGainsStereo (I.unPanning baseP)
+      (lGrp,  rGrp)  = case sType of
+                         I.Mono   -> panGainsMono   (I.unPanning gPan)
+                         I.Stereo -> panGainsStereo (I.unPanning gPan)
+      lEff = round (128 * clamp01 (lBase * lGrp))
+      rEff = round (128 * clamp01 (rBase * rGrp))
+  void $ Mix.effectPan ch lEff rEff
 
 -- Apply pause state considering base paused and group paused
 applyPauseState :: EnvSDL -> Mix.Channel -> IO ()
@@ -447,12 +479,12 @@ applyPauseState env ch = do
 -- Lookup helpers for group-based properties
 getGroupForChannel :: EnvSDL -> Mix.Channel -> IO (Maybe GroupSDL)
 getGroupForChannel env ch = do
-  gm <- readMVar env.groupMap
-  pure $
-    let matches gr = Set.member ch (gMembers gr)
-    in case [ gr | gr <- Map.elems gm, matches gr ] of
-         (gr:_) -> Just gr
-         []     -> Nothing
+  mName <- Map.lookup ch <$> readMVar env.chanGroupMap
+  case mName of
+    Nothing   -> pure Nothing
+    Just name -> do
+      gm <- readMVar env.groupMap
+      pure (Map.lookup name gm)
 
 getGroupVolumeForChannel :: EnvSDL -> Mix.Channel -> IO I.Volume
 getGroupVolumeForChannel env ch = do

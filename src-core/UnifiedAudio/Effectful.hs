@@ -36,26 +36,26 @@ data Audio (s :: Status -> Type) :: Effect
 
 data AudioBackend (s :: Status -> Type) = AudioBackend
   { 
-    loadA          :: Source -> SoundType -> IO (s 'Loaded)
-  , playA          :: s 'Loaded -> Times -> IO (s 'Playing)
-  , pauseA         :: s 'Playing -> IO (s 'Paused)
-  , resumeA        :: s 'Paused  -> IO (s 'Playing)
+    loadA            :: Source -> SoundType -> IO (s 'Loaded)
+  , playA            :: s 'Loaded -> Times -> IO (s 'Playing)
+  , pauseA           :: s 'Playing -> IO (s 'Paused)
+  , resumeA          :: s 'Paused  -> IO (s 'Playing)
 
-  , setVolumeA     :: forall alive. Alive      alive => s alive -> Volume  -> IO ()
-  , getVolumeA     :: forall alive. Alive      alive => s alive -> IO Volume
-  , setPanningA    :: forall alive. Alive      alive => s alive -> Panning -> IO ()
-  , getPanningA    :: forall alive. Alive      alive => s alive -> IO Panning
-  , stopChannelA   :: forall alive. Alive      alive => s alive -> IO (s 'Stopped)
+  , setVolumeA       :: forall alive. Alive alive => s alive -> Volume  -> IO ()
+  , getVolumeA       :: forall alive. Alive alive => s alive -> IO Volume
+  , setPanningA      :: forall alive. Alive alive => s alive -> Panning -> IO ()
+  , getPanningA      :: forall alive. Alive alive => s alive -> IO Panning
+  , stopChannelA     :: forall alive. Alive alive => s alive -> IO (s 'Stopped)
 
-  , hasFinishedA   :: s 'Playing -> IO Bool
-  , awaitFinishedA :: s 'Playing -> IO ()
-  , unloadA        :: s 'Loaded  -> IO (s 'Unloaded)
-  , mkOrGetGroupA  :: String        -> IO (Group s)
-  , addToGroupA    :: forall alive. Alive      alive => Group s -> s alive -> IO ()
-  , removeFromGroupA :: forall alive. Alive    alive => Group s -> s alive -> IO ()
-  , pauseGroupA    :: Group s -> IO ()
-  , resumeGroupA   :: Group s -> IO ()
-  , setGroupVolumeA :: Group s -> Volume -> IO ()
+  , hasFinishedA     :: s 'Playing -> IO Bool
+  , awaitFinishedA   :: s 'Playing -> IO ()
+  , unloadA          :: s 'Loaded  -> IO (s 'Unloaded)
+  , mkOrGetGroupA    :: String     -> IO (Group s)
+  , addToGroupA      :: forall alive. Alive alive => Group s -> s alive -> IO ()
+  , removeFromGroupA :: forall alive. Alive alive => Group s -> s alive -> IO ()
+  , pauseGroupA      :: Group s -> IO ()
+  , resumeGroupA     :: Group s -> IO ()
+  , setGroupVolumeA  :: Group s -> Volume -> IO ()
   , setGroupPanningA :: Group s -> Panning -> IO ()
   }
 
