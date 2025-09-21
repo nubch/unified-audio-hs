@@ -318,6 +318,7 @@ makeBackendSDL env =
     , I.resumeGroupA   = resumeGroupSDL env
     , I.stopGroupA     = stopGroupSDL env
     , I.setGroupVolumeA = setGroupVolumeSDL env
+    , I.getGroupVolumeA = getGroupVolumeSDL env
     , I.setGroupPanningA = setGroupPanningSDL env
     }
 

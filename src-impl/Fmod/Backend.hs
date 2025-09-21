@@ -220,6 +220,7 @@ makeBackendFmod env =
       I.resumeGroupA    = resumeGroupFmod env,
       I.stopGroupA      = stopGroupFmod env,
       I.setGroupVolumeA = setGroupVolumeFmod env,
+      I.getGroupVolumeA = getGroupVolumeFmod env,
       I.setGroupPanningA = setGroupPanningFmod env
     }
 
@@ -322,3 +323,10 @@ stopGroupFmod env (I.GroupId gid) = do
   case Map.lookup gid gm of
     Nothing  -> pure ()
     Just grp -> Safe.stopGroup grp
+
+getGroupVolumeFmod :: EnvFMOD -> I.Group FmodState -> IO I.Volume
+getGroupVolumeFmod env (I.GroupId gid) = do
+  gm <- readMVar env.groupMap
+  case Map.lookup gid gm of
+    Nothing  -> pure I.defaultVolume
+    Just grp -> I.mkVolume <$> Safe.getGroupVolume grp

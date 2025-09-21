@@ -58,6 +58,7 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
   , resumeGroupA     :: Group s -> IO ()
   , stopGroupA       :: Group s -> IO ()
   , setGroupVolumeA  :: Group s -> Volume -> IO ()
+  , getGroupVolumeA  :: Group s -> IO Volume
   , setGroupPanningA :: Group s -> Panning -> IO ()
   }
 
@@ -139,6 +140,11 @@ setGroupVolume :: Audio s :> es => Group s -> Volume -> Eff es ()
 setGroupVolume group vol = do
   AudioRep AudioBackend{ setGroupVolumeA = setGV } <- getStaticRep
   unsafeEff_ (setGV group vol)
+
+getGroupVolume :: Audio s :> es => Group s -> Eff es Volume
+getGroupVolume group = do
+  AudioRep AudioBackend{ getGroupVolumeA = getGV } <- getStaticRep
+  unsafeEff_ (getGV group)
 
 setGroupPanning :: Audio s :> es => Group s -> Panning -> Eff es ()
 setGroupPanning group pan = do

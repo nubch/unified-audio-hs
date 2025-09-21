@@ -17,7 +17,7 @@ import Data.Char (GeneralCategory(ModifierLetter))
 --import Fmod.Safe (stopChannel, stopGroup, setGroupPanning, setPanning)
 
 main :: IO ()
-main = runEff $ SDL.runAudio test
+main = runEff $ Fmod.runAudio test
 
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
@@ -27,11 +27,12 @@ test = do
   playing <- play wav Forever
   setPanning playing (mkPanning (-0.5))
   group <- makeGroup
-  setGroupVolume group (mkVolume (0.5))
+  setGroupVolume group (mkVolume (0.1))
+  vol <- getGroupVolume group
+  liftIO $ print vol
   wait 3
   liftIO $ putStrLn "aded"
   addToGroup group playing
-  stopGroup group
   resumeGroup group
   pauseGroup group
   wait 5

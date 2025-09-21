@@ -45,6 +45,9 @@ foreign import ccall safe "FMOD_ChannelGroup_SetPaused"
 foreign import ccall safe "FMOD_ChannelGroup_SetVolume"
   c_FMOD_ChannelGroup_SetVolume :: Ptr FMODChannelGroup -> CFloat -> IO FMOD_RESULT
 
+foreign import ccall safe "FMOD_ChannelGroup_GetVolume"
+  c_FMOD_ChannelGroup_GetVolume :: Ptr FMODChannelGroup -> Ptr CFloat -> IO FMOD_RESULT
+
 foreign import ccall safe "FMOD_ChannelGroup_Stop"
   c_FMOD_ChannelGroup_Stop :: Ptr FMODChannelGroup -> IO FMOD_RESULT
 

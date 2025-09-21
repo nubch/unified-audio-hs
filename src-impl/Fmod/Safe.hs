@@ -160,6 +160,13 @@ setGroupVolume (ChannelGroup grp) vol =
   withForeignPtr grp $ \pGrp ->
     checkResult "ChannelGroup_SetVolume" =<< Raw.c_FMOD_ChannelGroup_SetVolume pGrp vol
 
+getGroupVolume :: ChannelGroup -> IO Float
+getGroupVolume (ChannelGroup grp) =
+  withForeignPtr grp $ \pGrp ->
+    alloca $ \pOut -> do
+      checkResult "ChannelGroup_GetVolume" =<< Raw.c_FMOD_ChannelGroup_GetVolume pGrp pOut
+      realToFrac <$> peek pOut
+
 stopGroup :: ChannelGroup -> IO ()
 stopGroup (ChannelGroup grp) =
   withForeignPtr grp (checkResult "ChannelGroup_Stop" <=< Raw.c_FMOD_ChannelGroup_Stop)
