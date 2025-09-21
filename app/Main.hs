@@ -29,7 +29,12 @@ test = do
   group <- makeGroup
   setGroupVolume group (mkVolume (0.1))
   vol <- getGroupVolume group
+  pan1 <- getGroupPanning group
+  setGroupPanning group (mkPanning (-1))
+  pan2 <- getGroupPanning group
   liftIO $ print vol
+  liftIO $ print pan1
+  liftIO $ print pan2
   wait 3
   liftIO $ putStrLn "aded"
   addToGroup group playing

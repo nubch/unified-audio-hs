@@ -320,6 +320,7 @@ makeBackendSDL env =
     , I.setGroupVolumeA = setGroupVolumeSDL env
     , I.getGroupVolumeA = getGroupVolumeSDL env
     , I.setGroupPanningA = setGroupPanningSDL env
+    , I.getGroupPanningA = getGroupPanningSDL env
     }
 
 runAudio :: (IOE :> es) => Eff (I.Audio SDLSound : es) a -> Eff es a

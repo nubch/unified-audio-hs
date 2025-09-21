@@ -52,6 +52,7 @@ import GHC.Float (properFractionDouble)
 ----------------------------------------------------------------
 
 type GroupMap = MVar (Map.Map Int Safe.ChannelGroup)
+type GroupPanningMap = MVar (Map.Map Int I.Panning)
 
 data UpdateMode = AutoHz Int | ManualTick (MVar ())
 
@@ -63,6 +64,7 @@ data EnvFMOD = EnvFMOD
   , panMap      :: Safe.PanMap
   , callback    :: FunPtr Safe.ChannelCB
   , groupMap    :: GroupMap
+  , groupPanningMap :: GroupPanningMap
   , groupCounter :: MVar Int
   }
 
@@ -221,7 +223,8 @@ makeBackendFmod env =
       I.stopGroupA      = stopGroupFmod env,
       I.setGroupVolumeA = setGroupVolumeFmod env,
       I.getGroupVolumeA = getGroupVolumeFmod env,
-      I.setGroupPanningA = setGroupPanningFmod env
+      I.setGroupPanningA = setGroupPanningFmod env,
+      I.getGroupPanningA = getGroupPanningFmod env
     }
 
 runAudioWith :: (IOE :> es) => UpdateMode -> Eff (I.Audio FmodState : es) a -> Eff es a
@@ -233,12 +236,14 @@ runAudioWith upMode eff =
       (finMap, pnMap, cb) <- Safe.setupFMODEnv
 
       gMap    <- newMVar Map.empty
+      gpMap   <- newMVar Map.empty
       gCounter <- newMVar 0
       let env     = EnvFMOD { system = sys
                             , finishMap = finMap
                             , panMap    = pnMap
                             , callback  = cb
                             , groupMap  = gMap
+                            , groupPanningMap = gpMap
                             , groupCounter = gCounter
                             }
           backend = makeBackendFmod env
@@ -271,6 +276,8 @@ makeGroupFmod env = do
   let groupName = "group-" ++ show gid
   grp <- Safe.createChannelGroup env.system groupName
   modifyMVar_ env.groupMap $ \gm -> pure (Map.insert gid grp gm)
+  -- initialize group panning tracking to default (0)
+  modifyMVar_ env.groupPanningMap $ \gpm -> pure (Map.insert gid I.defaultPanning gpm)
   pure (I.GroupId gid)
 
 addToGroupFmod :: forall alive. I.Alive alive => EnvFMOD -> I.Group FmodState -> FmodState alive -> IO ()
@@ -315,7 +322,9 @@ setGroupPanningFmod env (I.GroupId gid) pan = do
   gm <- readMVar env.groupMap
   case Map.lookup gid gm of
     Nothing  -> pure ()
-    Just grp -> Safe.setGroupPanning grp (realToFrac $ I.unPanning pan)
+    Just grp -> do
+      Safe.setGroupPanning grp (realToFrac $ I.unPanning pan)
+      modifyMVar_ env.groupPanningMap $ \gpm -> pure (Map.insert gid pan gpm)
 
 stopGroupFmod :: EnvFMOD -> I.Group FmodState -> IO ()
 stopGroupFmod env (I.GroupId gid) = do
@@ -330,3 +339,8 @@ getGroupVolumeFmod env (I.GroupId gid) = do
   case Map.lookup gid gm of
     Nothing  -> pure I.defaultVolume
     Just grp -> I.mkVolume <$> Safe.getGroupVolume grp
+
+getGroupPanningFmod :: EnvFMOD -> I.Group FmodState -> IO I.Panning
+getGroupPanningFmod env (I.GroupId gid) = do
+  gpm <- readMVar env.groupPanningMap
+  pure (Map.findWithDefault I.defaultPanning gid gpm)

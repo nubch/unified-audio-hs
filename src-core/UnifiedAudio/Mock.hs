@@ -75,6 +75,7 @@ mockBackend =
       setGroupVolumeA = \(GroupId gid) vol -> logMock $ "setGroupVolume gid=" ++ show gid ++ " vol=" ++ show vol,
       getGroupVolumeA = \_ -> pure defaultVolume,
       setGroupPanningA = \(GroupId gid) pan -> logMock $ "setGroupPanning gid=" ++ show gid ++ " pan=" ++ show pan
+    , getGroupPanningA = \_ -> pure defaultPanning
     }
 
 logMock :: String -> IO ()

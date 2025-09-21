@@ -60,6 +60,7 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
   , setGroupVolumeA  :: Group s -> Volume -> IO ()
   , getGroupVolumeA  :: Group s -> IO Volume
   , setGroupPanningA :: Group s -> Panning -> IO ()
+  , getGroupPanningA :: Group s -> IO Panning
   }
 
 type instance DispatchOf (Audio s) = Static WithSideEffects
@@ -150,6 +151,11 @@ setGroupPanning :: Audio s :> es => Group s -> Panning -> Eff es ()
 setGroupPanning group pan = do
   AudioRep AudioBackend{ setGroupPanningA = setGP } <- getStaticRep
   unsafeEff_ (setGP group pan)
+
+getGroupPanning :: Audio s :> es => Group s -> Eff es Panning
+getGroupPanning group = do
+  AudioRep AudioBackend{ getGroupPanningA = getGP } <- getStaticRep
+  unsafeEff_ (getGP group)
 
 pause :: Audio s :> es => s Playing -> Eff es (s Paused)
 pause channel = do
