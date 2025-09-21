@@ -20,6 +20,7 @@ data MockSound :: Status -> Type where
   PlayingSound :: String -> MockSound Playing
   PausedSound :: String -> MockSound Paused
   StoppedSound :: String -> MockSound Stopped
+  UnloadedSound :: MockSound Unloaded
 
 mockBackend :: AudioBackend MockSound
 mockBackend =
@@ -42,16 +43,37 @@ mockBackend =
       resumeA = \(PausedSound i) -> do
         logMock $ "resumed" ++ i
         pure (PlayingSound i),
-      setVolumeA = \(PlayingSound pl) vol -> do
-        logMock $ "Setting volume of " ++ pl ++ " to " ++ show vol,
-      setPanningA = \(PlayingSound pl) pan -> do
-        logMock $ "Setting panning of " ++ pl ++ " to " ++ show pan,
-      stopChannelA = \(PlayingSound pl) -> do
-        logMock $ "Stopping channel " ++ pl
-        pure (StoppedSound pl),
+      setVolumeA = \ch vol -> case ch of
+        PlayingSound pl -> logMock $ "Setting volume of " ++ pl ++ " to " ++ show vol
+        PausedSound  pl -> logMock $ "Setting volume of (paused) " ++ pl ++ " to " ++ show vol,
+      getVolumeA = \_ -> pure defaultVolume,
+      setPanningA = \ch pan -> case ch of
+        PlayingSound pl -> logMock $ "Setting panning of " ++ pl ++ " to " ++ show pan
+        PausedSound  pl -> logMock $ "Setting panning of (paused) " ++ pl ++ " to " ++ show pan,
+      getPanningA = \_ -> pure defaultPanning,
+      stopChannelA = \ch -> case ch of
+        PlayingSound pl -> do logMock $ "Stopping channel " ++ pl; pure (StoppedSound pl)
+        PausedSound  pl -> do logMock $ "Stopping channel (paused) " ++ pl; pure (StoppedSound pl),
       hasFinishedA = \(PlayingSound pl) -> do
-        logMock $ "Checking if " ++ pl ++ " has finished"
-        pure False
+        logMock $ "Checking if " ++ pl ++ " has finished"; pure False,
+      awaitFinishedA = \(PlayingSound pl) -> logMock $ "Await finished for " ++ pl,
+      unloadA = \(LoadedSound i) -> do
+        logMock $ "Unloading " ++ i
+        pure UnloadedSound,
+      makeGroupA = do
+        logMock "makeGroup"
+        pure (GroupId 0),
+      addToGroupA = \(GroupId gid) ch -> case ch of
+        PlayingSound pl -> logMock $ "addToGroup gid=" ++ show gid ++ " ch=" ++ pl
+        PausedSound  pl -> logMock $ "addToGroup gid=" ++ show gid ++ " ch(paused)=" ++ pl,
+      removeFromGroupA = \(GroupId gid) ch -> case ch of
+        PlayingSound pl -> logMock $ "removeFromGroup gid=" ++ show gid ++ " ch=" ++ pl
+        PausedSound  pl -> logMock $ "removeFromGroup gid=" ++ show gid ++ " ch(paused)=" ++ pl,
+      pauseGroupA = \(GroupId gid) -> logMock $ "pauseGroup gid=" ++ show gid,
+      resumeGroupA = \(GroupId gid) -> logMock $ "resumeGroup gid=" ++ show gid,
+      stopGroupA = \(GroupId gid) -> logMock $ "stopGroup gid=" ++ show gid,
+      setGroupVolumeA = \(GroupId gid) vol -> logMock $ "setGroupVolume gid=" ++ show gid ++ " vol=" ++ show vol,
+      setGroupPanningA = \(GroupId gid) pan -> logMock $ "setGroupPanning gid=" ++ show gid ++ " pan=" ++ show pan
     }
 
 logMock :: String -> IO ()

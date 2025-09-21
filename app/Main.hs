@@ -26,11 +26,15 @@ test = do
   wav <- loadBytes bytes Mono
   playing <- play wav Forever
   setPanning playing (mkPanning (-0.5))
-  group <- mkOrGetGroup "gr"
-  setGroupPanning group (mkPanning (-0.5))
+  group <- makeGroup
+  setGroupVolume group (mkVolume (0.5))
   wait 3
   liftIO $ putStrLn "aded"
   addToGroup group playing
+  stopGroup group
+  resumeGroup group
+  pauseGroup group
+  wait 5
   awaitFinished playing
   pure ()
 
@@ -50,8 +54,8 @@ groupTest = do
   move <- play s1 Forever
   flim <- play s2 Forever
 
-  write "mkOrGetGroup: create or get named group 'SFX'"
-  g1 <- mkOrGetGroup "SFX"
+  write "makeGroup: create first group"
+  g1 <- makeGroup
   addToGroup g1 move
   addToGroup g1 flim
   wait 3
@@ -68,8 +72,8 @@ groupTest = do
   write "Restore group volume to 1.0"
   setGroupVolume g1 (mkVolume 1.0)
   wait 1
-  write "mkOrGetGroup again for 'SFX' (same underlying group)"
-  gAgain <- mkOrGetGroup "SFX"
+  write "Reuse original group handle"
+  let gAgain = g1
   stop flim
 
   write "Pause group via second handle (both should pause)"
@@ -90,18 +94,18 @@ groupTest = do
   pauseGroup g1
   wait 1
 
-  write "Create or get new named group 'SFX-2' and move flim there"
+  write "Create another group and move flim there"
   wait 2
-  g2 <- mkOrGetGroup "SFX-2"
+  g2 <- makeGroup
   wait 2
   addToGroup g2 flim
   wait 2
-  write "Pause 'SFX-2' (only flim should pause now)"
+  write "Pause second group (only flim should pause now)"
   wait 2
   pauseGroup g2
   resumeGroup g1
   wait 8
-  write "Resume 'SFX-2'"
+  write "Resume second group"
   resumeGroup g2
   wait 2
 

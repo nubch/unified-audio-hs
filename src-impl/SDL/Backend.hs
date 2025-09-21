@@ -31,7 +31,9 @@ import qualified UnifiedAudio.Effectful as I
 -- Types
 ----------------------------------------------------------------
 
-type FinishMap = MVar (Map.Map Mix.Channel (MVar ()))
+type FinishMap = MVar (Map.Map Mix.Channel Finished)
+
+type Finished = MVar ()
 
 -- Base per-channel state (not including group effects)
 type PanMap  = MVar (Map.Map Mix.Channel I.Panning)
@@ -46,8 +48,8 @@ data GroupSDL = GroupSDL
   , gPanning :: !I.Panning
   }
 
-type GroupMap = MVar (Map.Map String GroupSDL)
-type ChanGroupMap = MVar (Map.Map Mix.Channel String) -- reverse index: channel -> group name
+type GroupMap = MVar (Map.Map Int GroupSDL)
+type ChanGroupMap = MVar (Map.Map Mix.Channel Int) -- reverse index: channel -> group id
 
 data EnvSDL = EnvSDL
   { finishMap   :: FinishMap
@@ -57,13 +59,14 @@ data EnvSDL = EnvSDL
   , typeMap     :: TypeMap
   , groupMap    :: GroupMap
   , chanGroupMap :: ChanGroupMap
+  , groupCounter :: MVar Int
   }
 
 data SDLSound :: I.Status -> Type where
   LoadedSound  :: Mix.Chunk -> I.SoundType -> SDLSound I.Loaded
   UnloadedSound :: SDLSound I.Unloaded
-  PlayingSound :: Mix.Channel -> MVar () -> I.SoundType -> SDLSound I.Playing
-  PausedSound  :: Mix.Channel -> MVar () -> I.SoundType -> SDLSound I.Paused
+  PlayingSound :: Mix.Channel -> Finished -> I.SoundType -> SDLSound I.Playing
+  PausedSound  :: Mix.Channel -> Finished -> I.SoundType -> SDLSound I.Paused
   StoppedSound :: Mix.Channel -> SDLSound I.Stopped
 
 ----------------------------------------------------------------
@@ -79,6 +82,7 @@ initSDLEnv = do
   finMap <- newMVar Map.empty
   gMap   <- newMVar Map.empty
   cgMap  <- newMVar Map.empty
+  gCounter <- newMVar 0
   Mix.whenChannelFinished $ \ch -> do
     modifyMVar_ finMap $ \m ->
       case Map.lookup ch m of
@@ -102,6 +106,7 @@ initSDLEnv = do
               , typeMap = tMap
               , groupMap = gMap
               , chanGroupMap = cgMap
+              , groupCounter = gCounter
               }
 
 
@@ -167,25 +172,30 @@ resumeSDL env (PausedSound channel finished sType) = do
   applyPauseState env channel
   return (PlayingSound channel finished sType)
 
+-- Stop a channel and clean all associated state (maps, groups, reverse index).
+stopChannelAndCleanup :: EnvSDL -> Mix.Channel -> IO ()
+stopChannelAndCleanup env channel = do
+  Mix.halt channel
+  -- Signal finished if present and remove from finish map
+  modifyMVar_ env.finishMap $ \m -> case Map.lookup channel m of
+    Just done -> do _ <- tryPutMVar done (); pure (Map.delete channel m)
+    Nothing   -> pure m
+  -- Remove all other per-channel state
+  modifyMVar_ env.panMap       $ \pm  -> pure (Map.delete channel pm)
+  modifyMVar_ env.volMap       $ \vm  -> pure (Map.delete channel vm)
+  modifyMVar_ env.pauseMap     $ \pm  -> pure (Map.delete channel pm)
+  modifyMVar_ env.typeMap      $ \tm  -> pure (Map.delete channel tm)
+  modifyMVar_ env.chanGroupMap $ \cgm -> pure (Map.delete channel cgm)
+  -- Prune the channel from all groups' membership sets
+  modifyMVar_ env.groupMap $ \gm ->
+    let prune gr = gr { gMembers = Set.delete channel (gMembers gr) }
+    in pure (Map.map prune gm)
+
 stopSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> IO (SDLSound I.Stopped)
 stopSDL env stoppable =
   case stoppable of
-    (PlayingSound channel finished _) -> stop channel finished
-    (PausedSound  channel finished _) -> stop channel finished
-  where
-    stop channel finished = do
-      Mix.halt channel
-      modifyMVar_ env.finishMap $ \m  -> pure (Map.delete channel m)
-      modifyMVar_ env.panMap    $ \pm -> pure (Map.delete channel pm)
-      modifyMVar_ env.volMap    $ \vm -> pure (Map.delete channel vm)
-      modifyMVar_ env.pauseMap  $ \pm -> pure (Map.delete channel pm)
-      modifyMVar_ env.typeMap   $ \tm -> pure (Map.delete channel tm)
-      modifyMVar_ env.chanGroupMap $ \cgm -> pure (Map.delete channel cgm)
-      modifyMVar_ env.groupMap  $ \gm ->
-        let prune gr = gr { gMembers = Set.delete channel (gMembers gr) }
-        in pure (Map.map prune gm)
-      _ <- tryPutMVar finished ()
-      return (StoppedSound channel)
+    (PlayingSound channel _ _) -> do stopChannelAndCleanup env channel; pure (StoppedSound channel)
+    (PausedSound  channel _ _) -> do stopChannelAndCleanup env channel; pure (StoppedSound channel)
 
 hasFinishedSDL :: SDLSound I.Playing -> IO Bool
 hasFinishedSDL (PlayingSound _ finished _) = do
@@ -194,7 +204,7 @@ hasFinishedSDL (PlayingSound _ finished _) = do
 
 awaitFinishedSDL :: SDLSound I.Playing -> IO ()
 awaitFinishedSDL (PlayingSound _ finished _) =
-  takeMVar finished
+  readMVar finished
 
 ----------------------------------------------------------------
 -- Volume / Panning (and helpers)
@@ -301,11 +311,12 @@ makeBackendSDL env =
     , I.unloadA        = unloadSDL
     , I.hasFinishedA   = hasFinishedSDL
     , I.awaitFinishedA = awaitFinishedSDL
-    , I.mkOrGetGroupA  = mkOrGetGroupSDL env
+    , I.makeGroupA     = makeGroupSDL env
     , I.addToGroupA    = addToGroupSDL env
     , I.removeFromGroupA = removeFromGroupSDL env
     , I.pauseGroupA    = pauseGroupSDL env
     , I.resumeGroupA   = resumeGroupSDL env
+    , I.stopGroupA     = stopGroupSDL env
     , I.setGroupVolumeA = setGroupVolumeSDL env
     , I.setGroupPanningA = setGroupPanningSDL env
     }
@@ -326,54 +337,50 @@ runAudio eff =
 -- Groups (SDL)
 ----------------------------------------------------------------
 
-mkGroupSDL :: EnvSDL -> String -> IO (I.Group SDLSound)
-mkGroupSDL env name = do
-  modifyMVar_ env.groupMap $ \gm ->
-    let g = GroupSDL { gPaused = False
-                     , gMembers = Set.empty
-                     , gVolume = I.defaultVolume
-                     , gPanning = I.defaultPanning
-                     }
-    in pure (Map.insert name g gm)
-  pure (I.GroupName name)
-
-mkOrGetGroupSDL :: EnvSDL -> String -> IO (I.Group SDLSound)
-mkOrGetGroupSDL env name = do
-  gm <- readMVar env.groupMap
-  case Map.lookup name gm of
-    Just _ -> pure (I.GroupName name)
-    Nothing  -> mkGroupSDL env name
+makeGroupSDL :: EnvSDL -> IO (I.Group SDLSound)
+makeGroupSDL env = do
+  gid <- modifyMVar env.groupCounter $ \n ->
+    let next = n + 1
+    in pure (next, n)
+  let group = GroupSDL
+        { gPaused = False
+        , gMembers = Set.empty
+        , gVolume = I.defaultVolume
+        , gPanning = I.defaultPanning
+        }
+  modifyMVar_ env.groupMap $ \gm -> pure (Map.insert gid group gm)
+  pure (I.GroupId gid)
 
 addToGroupSDL :: forall alive. I.Alive alive => EnvSDL -> I.Group SDLSound -> SDLSound alive -> IO ()
-addToGroupSDL env (I.GroupName name) s = do
+addToGroupSDL env (I.GroupId gid) s = do
   ch <- case s of
     PlayingSound c _ _ -> pure c
     PausedSound  c _ _ -> pure c
   -- Enforce exclusive membership: remove from all groups, then add to target
-  modifyMVar_ env.groupMap $ \gm -> case Map.lookup name gm of
+  modifyMVar_ env.groupMap $ \gm -> case Map.lookup gid gm of
     Nothing -> pure gm
     Just _gr -> do
       -- remove channel from every group's membership set
       let gmCleared = Map.map (\gr -> gr { gMembers = Set.delete ch (gMembers gr) }) gm
       -- add channel to the target group's membership set
-      let gmUpdated = Map.adjust (\gr -> gr { gMembers = Set.insert ch (gMembers gr) }) name gmCleared
+      let gmUpdated = Map.adjust (\gr -> gr { gMembers = Set.insert ch (gMembers gr) }) gid gmCleared
       pure gmUpdated
   -- update reverse index with exclusive membership
-  modifyMVar_ env.chanGroupMap $ \cgm -> pure (Map.insert ch name cgm)
+  modifyMVar_ env.chanGroupMap $ \cgm -> pure (Map.insert ch gid cgm)
   -- Apply group bus settings to the channel and correct pause state
   applyEffectiveForChannel env ch
   applyPauseState env ch
 
 removeFromGroupSDL :: forall alive. I.Alive alive => EnvSDL -> I.Group SDLSound -> SDLSound alive -> IO ()
-removeFromGroupSDL env (I.GroupName name) s = do
+removeFromGroupSDL env (I.GroupId gid) s = do
   ch <- case s of
     PlayingSound c _ _ -> pure c
     PausedSound  c _ _ -> pure c
-  modifyMVar_ env.groupMap $ \gm -> case Map.lookup name gm of
+  modifyMVar_ env.groupMap $ \gm -> case Map.lookup gid gm of
     Nothing -> pure gm
     Just gr -> do
       let gr' = gr { gMembers = Set.delete ch (gMembers gr) }
-      pure (Map.insert name gr' gm)
+      pure (Map.insert gid gr' gm)
   -- remove reverse index entry since membership is exclusive
   modifyMVar_ env.chanGroupMap $ \cgm -> pure (Map.delete ch cgm)
   -- Re-apply effective settings (likely reverting to base settings)
@@ -381,66 +388,80 @@ removeFromGroupSDL env (I.GroupName name) s = do
   applyPauseState env ch
 
 pauseGroupSDL :: EnvSDL -> I.Group SDLSound -> IO ()
-pauseGroupSDL env (I.GroupName name) = do
-  modifyMVar_ env.groupMap $ \gm -> case Map.lookup name gm of
+pauseGroupSDL env (I.GroupId gid) = do
+  modifyMVar_ env.groupMap $ \gm -> case Map.lookup gid gm of
     Nothing -> pure gm
     Just gr -> do
       let gr' = gr{ gPaused = True }
-      pure (Map.insert name gr' gm)
+      pure (Map.insert gid gr' gm)
   -- Apply pause to members (final pause = basePaused || groupPaused)
   gm <- readMVar env.groupMap
-  case Map.lookup name gm of
+  case Map.lookup gid gm of
     Nothing -> pure ()
     Just gr -> mapM_ (applyPauseState env) (Set.toList (gMembers gr))
 
 resumeGroupSDL :: EnvSDL -> I.Group SDLSound -> IO ()
-resumeGroupSDL env (I.GroupName name) = do
-  modifyMVar_ env.groupMap $ \gm -> case Map.lookup name gm of
+resumeGroupSDL env (I.GroupId gid) = do
+  modifyMVar_ env.groupMap $ \gm -> case Map.lookup gid gm of
     Nothing -> pure gm
     Just gr -> do
       let gr' = gr{ gPaused = False }
-      pure (Map.insert name gr' gm)
+      pure (Map.insert gid gr' gm)
   -- Resume only members that are not base-paused
   gm <- readMVar env.groupMap
-  case Map.lookup name gm of
+  case Map.lookup gid gm of
     Nothing -> pure ()
     Just gr -> mapM_ (applyPauseState env) (Set.toList (gMembers gr))
 
+stopGroupSDL :: EnvSDL -> I.Group SDLSound -> IO ()
+stopGroupSDL env (I.GroupId gid) = do
+  -- Snapshot members, then stop each via common helper
+  gm <- readMVar env.groupMap
+  case Map.lookup gid gm of
+    Nothing -> pure ()
+    Just gr -> do
+      let members = Set.toList (gMembers gr)
+      mapM_ (stopChannelAndCleanup env) members
+      -- After stopping, clear membership set for the group (redundant but explicit)
+      modifyMVar_ env.groupMap $ \gm2 -> case Map.lookup gid gm2 of
+        Nothing  -> pure gm2
+        Just gr2 -> pure (Map.insert gid gr2{ gMembers = Set.empty } gm2)
+
 -- Note: SDL Mixer has no group volume; we approximate by setting member volumes directly.
 setGroupVolumeSDL :: EnvSDL -> I.Group SDLSound -> I.Volume -> IO ()
-setGroupVolumeSDL env (I.GroupName name) vol = do
-  modifyMVar_ env.groupMap $ \gm -> case Map.lookup name gm of
+setGroupVolumeSDL env (I.GroupId gid) vol = do
+  modifyMVar_ env.groupMap $ \gm -> case Map.lookup gid gm of
     Nothing -> pure gm
-    Just gr -> pure (Map.insert name gr{ gVolume = vol } gm)
+    Just gr -> pure (Map.insert gid gr{ gVolume = vol } gm)
   -- Apply to current members: effective = base * group
   gm <- readMVar env.groupMap
-  case Map.lookup name gm of
+  case Map.lookup gid gm of
     Nothing -> pure ()
     Just gr -> mapM_ (applyEffectiveForChannel env) (Set.toList (gMembers gr))
 
 -- Approximate group panning by applying stereo balance to members.
 setGroupPanningSDL :: EnvSDL -> I.Group SDLSound -> I.Panning -> IO ()
-setGroupPanningSDL env (I.GroupName name) pan = do
-  modifyMVar_ env.groupMap $ \gm -> case Map.lookup name gm of
+setGroupPanningSDL env (I.GroupId gid) pan = do
+  modifyMVar_ env.groupMap $ \gm -> case Map.lookup gid gm of
     Nothing -> pure gm
-    Just gr -> pure (Map.insert name gr{ gPanning = pan } gm)
+    Just gr -> pure (Map.insert gid gr{ gPanning = pan } gm)
   -- Apply to current members: effective = clamp(base + group)
   gm <- readMVar env.groupMap
-  case Map.lookup name gm of
+  case Map.lookup gid gm of
     Nothing -> pure ()
     Just gr -> mapM_ (applyEffectiveForChannel env) (Set.toList (gMembers gr))
 
 getGroupVolumeSDL :: EnvSDL -> I.Group SDLSound -> IO I.Volume
-getGroupVolumeSDL env (I.GroupName name) = do
+getGroupVolumeSDL env (I.GroupId gid) = do
   gm <- readMVar env.groupMap
-  case Map.lookup name gm of
+  case Map.lookup gid gm of
     Nothing -> pure I.defaultVolume
     Just gr -> pure (gVolume gr)
 
 getGroupPanningSDL :: EnvSDL -> I.Group SDLSound -> IO I.Panning
-getGroupPanningSDL env (I.GroupName name) = do
+getGroupPanningSDL env (I.GroupId gid) = do
   gm <- readMVar env.groupMap
-  case Map.lookup name gm of
+  case Map.lookup gid gm of
     Nothing -> pure I.defaultPanning
     Just gr -> pure (gPanning gr)
 
@@ -479,12 +500,12 @@ applyPauseState env ch = do
 -- Lookup helpers for group-based properties
 getGroupForChannel :: EnvSDL -> Mix.Channel -> IO (Maybe GroupSDL)
 getGroupForChannel env ch = do
-  mName <- Map.lookup ch <$> readMVar env.chanGroupMap
-  case mName of
+  mGid <- Map.lookup ch <$> readMVar env.chanGroupMap
+  case mGid of
     Nothing   -> pure Nothing
-    Just name -> do
+    Just gid -> do
       gm <- readMVar env.groupMap
-      pure (Map.lookup name gm)
+      pure (Map.lookup gid gm)
 
 getGroupVolumeForChannel :: EnvSDL -> Mix.Channel -> IO I.Volume
 getGroupVolumeForChannel env ch = do

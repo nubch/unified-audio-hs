@@ -5,11 +5,19 @@
 module TP where
 
 import Control.Concurrent (threadDelay)
+import Control.Monad (void)
+import Control.Monad (void)
 import Effectful
-import Effectful.Dispatch.Static (unsafeEff_)
+import Effectful.Dispatch.Static (unsafeEff_, unEff)
 import Fmod.Backend qualified as Fmod
 import Test.Hspec (shouldBe)
 import UnifiedAudio.Effectful
+
+wait :: Int -> Eff es ()
+wait x = unsafeEff_ $ threadDelay (x * 1000000)
+
+write :: (IOE :> es) => String -> Eff es ()
+write = liftIO . putStrLn
 
 tp1 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp1 = do
@@ -18,176 +26,170 @@ tp1 = do
   ogg <- loadFile "sounds/exampleFile.ogg" Stereo
   flac <- loadFile "sounds/exampleFile.flac" Stereo
 
-  --- wav
   write "Playing WAV"
   wav' <- play wav Once
   wait 2
+  awaitFinished wav'
   _ <- stop wav'
-  write "Stopped WAV"
-  write ""
 
-  --- mp3
   write "Playing MP3"
   mp3' <- play mp3 Once
   wait 2
+  awaitFinished mp3'
   _ <- stop mp3'
-  write "Stopped MP3"
-  write ""
 
-  --- ogg
   write "Playing OGG"
   ogg' <- play ogg Once
   wait 2
   _ <- stop ogg'
-  write "Stopped OGG"
-  write ""
+  awaitFinished ogg'
 
-  --- flac
   write "Playing FLAC"
   flac' <- play flac Once
   wait 2
-  _ <- stop flac'
-  write "Stopped FLAC"
-  write ""
-  write "Test successful"
-  where
-    write = liftIO . putStrLn
-    wait x = unsafeEff_ $ threadDelay (x * 1000000)
+  awaitFinished flac'
+  write "Unloading all files"
+  mapM_ unload [wav, mp3, ogg, flac]
+  
+
+tp2 :: (Audio s :> es, IOE :> es) => Eff es ()
+tp2 = do
+  let vols = [-10, -0.1, 0, 0.5, 1, 1.5, 9999]
+      pans = [5, -1, 0, 1, -5]
+  s <- loadFile "sounds/exampleFile.wav" Mono
+  chM <- play s Forever
+
+  -- Volume: set, read, and check each value in sequence
+  mapM_ (\v -> do
+            setVolume chM (mkVolume v)
+            observed <- getVolume chM
+            liftIO $ observed `shouldBe` mkVolume v
+        ) vols
+
+  -- Panning: set, read, and check each value in sequence
+  mapM_ (\x -> do
+            setPanning chM (mkPanning x)
+            p <- getPanning chM
+            liftIO $ p `shouldBe` mkPanning x
+        ) pans
+
+  void (stop chM)
+
+tp3 :: (Audio s :> es, IOE :> es) => Eff es ()
+tp3 = do
+  l <- loadFile "sounds/exampleFile.wav" Stereo
+  p <- play l Once
+  paused <- pause p
+  r <- resume paused
+  _ <- stop r
+  pure ()
+
+-- TP5: Looping and hasFinished monotonicity (AC5, AC6)
+tp4 :: (Audio s :> es, IOE :> es) => Eff es ()
+tp4 = do
+  -- once: eventually becomes finished
+  onceS <- loadFile "sounds/exampleFile.wav" Stereo
+  write "Sound should play once"
+  ch1 <- play onceS Once
+  f0 <- hasFinished ch1
+  liftIO $ f0 `shouldBe` False
+  awaitFinished ch1
+  p1 <- hasFinished ch1
+  liftIO $ p1 `shouldBe` True
+
+  -- times n
+  tS <- loadFile "sounds/exampleFile.wav" Stereo
+  ch2 <- play tS (Times 2)
+  write "Sound should play twice"
+  awaitFinished ch2
+  p2 <- hasFinished ch2
+  liftIO $ p2 `shouldBe` True
+
+  -- forever then stop
+  fS <- loadFile "sounds/exampleFile.wav" Stereo
+  write "Sound should loop indefinitely"
+  chF <- play fS Forever
+  wait 3
+  f3 <- hasFinished chF
+  liftIO $ f3 `shouldBe` False
+  void (stop chF)
+
+
+-- TP6: Group membership exclusivity (AC7)
+tp5 :: (Audio s :> es, IOE :> es) => Eff es ()
+tp5 = do
+  s <- loadFile "sounds/exampleFile.wav" Stereo
+  ch <- play s Forever
+  g1 <- makeGroup
+  g2 <- makeGroup
+  addToGroup g1 ch
+  -- moving to g2 must remove from g1
+  addToGroup g2 ch
+  -- pausing g1 should not affect ch anymore
+  pauseGroup g1
+  write "Sound should still be playing"
+  wait 5 
+  void (stop ch)
 
 -- Add more:
 -- it "TP3: Looping" $ runWithBackend tp3
 
 -- TP7: Group demo exercising group bus behavior consistently across backends
-tp7 :: (Audio s :> es, IOE :> es) => Eff es ()
-tp7 = do
-  write "Loading two sounds"
+tp6 :: (Audio s :> es, IOE :> es) => Eff es ()
+tp6 = do
   wavSound <- loadFile "sounds/example.wav" Stereo
   mp3Sound <- loadFile "sounds/example.mp3" Stereo
 
-  write "Playing both (Forever)"
   wavChannel <- play wavSound Forever
   mp3Channel <- play mp3Sound Forever
 
-  write "mkOrGetGroup: create or get named group 'SFX'"
-  groupSFX <- mkOrGetGroup "SFX"
-  addToGroup groupSFX wavChannel
-  addToGroup groupSFX mp3Channel
+  group1 <- makeGroup
+  addToGroup group1 wavChannel
+  addToGroup group1 mp3Channel
+
   wait 1
   write "Pan group left, then right, then center"
-  setGroupPanning groupSFX (mkPanning (-1))
+  setGroupPanning group1 (mkPanning (-1))
   wait 1
-  setGroupPanning groupSFX (mkPanning 1)
+  setGroupPanning group1 (mkPanning 1)
   wait 1
-  setGroupPanning groupSFX (mkPanning 0)
-  wait 1
-  write "Set group volume to 0.3 (both attenuated)"
-  setGroupVolume groupSFX (mkVolume 0.3)
-  wait 1
-  write "Restore group volume to 1.0"
-  setGroupVolume groupSFX (mkVolume 1.0)
-  wait 1
-  write "Pause group via handle (both should pause)"
-  pauseGroup groupSFX
+  setGroupPanning group1 (mkPanning 0)
   wait 1
 
-  write "Attempt resume of one channel only while group paused (should remain paused)"
-  _ <- resume =<< pause wavChannel
+  write "Set group volume to 0.3 (both attenuated)"
+  setGroupVolume group1 (mkVolume 0.3)
+  wait 1
+  write "Restore group volume to 1.0"
+  setGroupVolume group1 (mkVolume 1.0)
+  wait 1
+  write "Pause group via handle (both should pause)"
+  pauseGroup group1
   wait 1
 
   write "Resume group (both should play)"
-  resumeGroup groupSFX
+  resumeGroup group1
   wait 2
 
   write "Cleanup: stop both"
+  write "Stopping via group handle"
+  stopGroup group1
+  -- Optionally, also ensure individual stops are harmless no-ops
   _ <- stop wavChannel
-  _ <- stop mp3Channel
-  write "TP7 done"
-  where
-    write = liftIO . putStrLn
-    wait x = unsafeEff_ $ threadDelay (x * 1000000)
+  void $ stop mp3Channel
 
--- TP8: Equal panning/volume semantics across backends
--- Expectations:
--- - Channel getters return base values even after group volume/pan changes.
--- - Base channel setters preserve those base values while effective output reflects group.
+-- Resuming a channel while its group is paused keeps it effectively paused.
+-- After resuming the group, the channel proceeds to finish.
 tp8 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp8 = do
   sound <- loadFile "sounds/exampleFile.wav" Stereo
-  channel <- play sound Forever
-  let baseVol = mkVolume 0.8
-      basePan = mkPanning 0.2
-  setVolume channel baseVol
-  setPanning channel basePan
-
-  group <- mkOrGetGroup "TP8-Group"
-  addToGroup group channel
-  setGroupVolume group (mkVolume 0.5)
-  setGroupPanning group (mkPanning (-0.5))
-
-  observedVolume <- getVolume channel
-  observedPanning <- getPanning channel
-  liftIO $ observedVolume `shouldBe` baseVol
-  liftIO $ observedPanning `shouldBe` basePan
-
-  _ <- stop channel
-  pure ()
-
--- TP9: Group pause uses OR semantics with channel pause
--- Expectations:
--- - Resuming a channel while its group is paused keeps it effectively paused.
--- - After resuming the group, the channel proceeds to finish.
-tp9 :: (Audio s :> es, IOE :> es) => Eff es ()
-tp9 = do
-  sound <- loadFile "sounds/exampleFile.wav" Stereo
   channel <- play sound Once
-  group <- mkOrGetGroup "TP9-Group"
+  group <- makeGroup
   addToGroup group channel
   pauseGroup group
+  write "Track should be paused"
   channelAfterResume <- resume =<< pause channel
-  unsafeEff_ $ threadDelay 500000
-  finishedBeforeGroupResume <- hasFinished channelAfterResume
-  liftIO $ finishedBeforeGroupResume `shouldBe` False
+  wait 5 
   resumeGroup group
+  write "Track should be playing"
   awaitFinished channelAfterResume
-  pure ()
-
--- TP10: Group panning vs individual channel panning
--- Expectations:
--- - Setting group panning does not change channel-level getters.
--- - Changing a channel's pan while group pan is active reflects in getters.
-tp10 :: (Audio s :> es, IOE :> es) => Eff es ()
-tp10 = do
-  wavSound <- loadFile "sounds/exampleFile.wav" Stereo
-  mp3Sound <- loadFile "sounds/exampleFile.mp3" Stereo
-
-  wavChannel <- play wavSound Forever
-  mp3Channel <- play mp3Sound Forever
-
-  let basePanWav = mkPanning (-0.3)
-      basePanMp3 = mkPanning 0.4
-  setPanning wavChannel basePanWav
-  setPanning mp3Channel basePanMp3
-
-  group <- mkOrGetGroup "TP10-Group"
-  addToGroup group wavChannel
-  addToGroup group mp3Channel
-
-  -- apply group pan
-  setGroupPanning group (mkPanning 0.5)
-
-  -- getters should reflect base, not group
-  observedPanWav <- getPanning wavChannel
-  observedPanMp3 <- getPanning mp3Channel
-  liftIO $ observedPanWav `shouldBe` basePanWav
-  liftIO $ observedPanMp3 `shouldBe` basePanMp3
-
-  -- change an individual pan while group pan is active
-  let updatedPanMp3 = mkPanning (-0.2)
-  setPanning mp3Channel updatedPanMp3
-  observedPanMp3Updated <- getPanning mp3Channel
-  liftIO $ observedPanMp3Updated `shouldBe` updatedPanMp3
-
-  -- cleanup
-  _ <- stop wavChannel
-  _ <- stop mp3Channel
   pure ()

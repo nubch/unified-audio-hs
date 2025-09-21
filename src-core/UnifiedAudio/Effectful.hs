@@ -19,7 +19,8 @@ import qualified Data.ByteString as BS
 
 data Source = FromFile FilePath | FromBytes BS.ByteString
 
-newtype Group (s :: Status -> Type) = GroupName String
+newtype Group (s :: Status -> Type) = GroupId Int
+  deriving (Show, Eq)
 
 data Status = Loaded | Playing | Paused | Stopped | Unloaded
   deriving (Show, Eq)
@@ -50,11 +51,12 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
   , hasFinishedA     :: s 'Playing -> IO Bool
   , awaitFinishedA   :: s 'Playing -> IO ()
   , unloadA          :: s 'Loaded  -> IO (s 'Unloaded)
-  , mkOrGetGroupA    :: String     -> IO (Group s)
+  , makeGroupA       :: IO (Group s)
   , addToGroupA      :: forall alive. Alive alive => Group s -> s alive -> IO ()
   , removeFromGroupA :: forall alive. Alive alive => Group s -> s alive -> IO ()
   , pauseGroupA      :: Group s -> IO ()
   , resumeGroupA     :: Group s -> IO ()
+  , stopGroupA       :: Group s -> IO ()
   , setGroupVolumeA  :: Group s -> Volume -> IO ()
   , setGroupPanningA :: Group s -> Panning -> IO ()
   }
@@ -103,10 +105,10 @@ play sound t = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.playA sound normTimes
 
-mkOrGetGroup :: Audio s :> es => String -> Eff es (Group s)
-mkOrGetGroup name = do
-  AudioRep AudioBackend{ mkOrGetGroupA = f } <- getStaticRep
-  unsafeEff_ (f name)
+makeGroup :: Audio s :> es => Eff es (Group s)
+makeGroup = do
+  AudioRep AudioBackend{ makeGroupA = f } <- getStaticRep
+  unsafeEff_ f
 
 addToGroup :: (Audio s :> es, Alive alive) => Group s -> s alive -> Eff es ()
 addToGroup group channel = do
@@ -127,6 +129,11 @@ resumeGroup :: Audio s :> es => Group s -> Eff es ()
 resumeGroup group = do
   AudioRep AudioBackend{ resumeGroupA = resGroup } <- getStaticRep
   unsafeEff_ (resGroup group)
+
+stopGroup :: Audio s :> es => Group s -> Eff es ()
+stopGroup group = do
+  AudioRep AudioBackend{ stopGroupA = sGroup } <- getStaticRep
+  unsafeEff_ (sGroup group)
 
 setGroupVolume :: Audio s :> es => Group s -> Volume -> Eff es ()
 setGroupVolume group vol = do
