@@ -72,6 +72,9 @@ mockBackend =
       pauseGroupA = \(GroupId gid) -> logMock $ "pauseGroup gid=" ++ show gid,
       resumeGroupA = \(GroupId gid) -> logMock $ "resumeGroup gid=" ++ show gid,
       stopGroupA = \(GroupId gid) -> logMock $ "stopGroup gid=" ++ show gid,
+      isGroupPausedA = \(GroupId gid) -> do
+        logMock $ "isGroupPaused gid=" ++ show gid
+        pure False,
       setGroupVolumeA = \(GroupId gid) vol -> logMock $ "setGroupVolume gid=" ++ show gid ++ " vol=" ++ show vol,
       getGroupVolumeA = \_ -> pure defaultVolume,
       setGroupPanningA = \(GroupId gid) pan -> logMock $ "setGroupPanning gid=" ++ show gid ++ " pan=" ++ show pan

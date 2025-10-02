@@ -27,7 +27,17 @@ test = do
   playing <- play wav Forever
   setPanning playing (mkPanning (-0.5))
   group <- makeGroup
-  setGroupVolume group (mkVolume (0.1))
+  isP <- isGroupPaused group
+  liftIO $ print isP --false
+  pauseGroup group
+  isP2 <- isGroupPaused group
+  liftIO $ print isP2 -- true
+  resumeGroup group
+  isP4 <- isGroupPaused group -- false
+  liftIO $ print isP4
+  stopGroup group
+  -- removed isGroupStopped checks
+
   vol <- getGroupVolume group
   pan1 <- getGroupPanning group
   setGroupPanning group (mkPanning (-1))

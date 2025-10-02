@@ -42,10 +42,10 @@ type PauseMap = MVar (Map.Map Mix.Channel Bool) -- base paused state
 type TypeMap = MVar (Map.Map Mix.Channel I.SoundType)
 
 data GroupSDL = GroupSDL
-  { gPaused  :: !Bool
-  , gMembers :: !(Set.Set Mix.Channel)
-  , gVolume  :: !I.Volume
-  , gPanning :: !I.Panning
+  { gPaused  :: Bool
+  , gMembers :: Set.Set Mix.Channel
+  , gVolume  :: I.Volume
+  , gPanning :: I.Panning
   }
 
 type GroupMap = MVar (Map.Map Int GroupSDL)
@@ -63,11 +63,11 @@ data EnvSDL = EnvSDL
   }
 
 data SDLSound :: I.Status -> Type where
-  LoadedSound  :: Mix.Chunk -> I.SoundType -> SDLSound I.Loaded
-  UnloadedSound :: SDLSound I.Unloaded
-  PlayingSound :: Mix.Channel -> Finished -> I.SoundType -> SDLSound I.Playing
-  PausedSound  :: Mix.Channel -> Finished -> I.SoundType -> SDLSound I.Paused
-  StoppedSound :: Mix.Channel -> SDLSound I.Stopped
+  LoadedSound    :: Mix.Chunk -> I.SoundType -> SDLSound I.Loaded
+  UnloadedSound  :: SDLSound I.Unloaded
+  PlayingChannel :: Mix.Channel -> Finished -> I.SoundType -> SDLSound I.Playing
+  PausedChannel  :: Mix.Channel -> Finished -> I.SoundType -> SDLSound I.Paused
+  StoppedChannel :: SDLSound I.Stopped
 
 ----------------------------------------------------------------
 -- Init / Finalization
@@ -148,7 +148,7 @@ playSDL env (LoadedSound loaded sType) times = do
   modifyMVar_ env.pauseMap $ \pm -> pure $ Map.insert channel False pm
 
   -- Reset pan and volume if channel gets reused
-  let playingChannel = PlayingSound channel done sType
+  let playingChannel = PlayingChannel channel done sType
   setPanningSDL env playingChannel I.defaultPanning
   setVolumeSDL env playingChannel I.defaultVolume
   pure playingChannel
@@ -159,18 +159,18 @@ playSDL env (LoadedSound loaded sType) times = do
       I.Forever -> Mix.Forever
 
 pauseSDL :: EnvSDL -> SDLSound I.Playing -> IO (SDLSound I.Paused)
-pauseSDL env (PlayingSound channel finished sType) = do
+pauseSDL env (PlayingChannel channel finished sType) = do
   modifyMVar_ env.pauseMap $ \pm -> pure (Map.insert channel True pm)
   -- Apply final paused = basePaused || groupPaused
   applyPauseState env channel
-  return (PausedSound channel finished sType)
+  return (PausedChannel channel finished sType)
 
 resumeSDL :: EnvSDL -> SDLSound I.Paused -> IO (SDLSound I.Playing)
-resumeSDL env (PausedSound channel finished sType) = do
+resumeSDL env (PausedChannel channel finished sType) = do
   modifyMVar_ env.pauseMap $ \pm -> pure (Map.insert channel False pm)
   -- Apply final paused = basePaused || groupPaused
   applyPauseState env channel
-  return (PlayingSound channel finished sType)
+  return (PlayingChannel channel finished sType)
 
 -- Stop a channel and clean all associated state (maps, groups, reverse index).
 stopChannelAndCleanup :: EnvSDL -> Mix.Channel -> IO ()
@@ -194,16 +194,16 @@ stopChannelAndCleanup env channel = do
 stopSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> IO (SDLSound I.Stopped)
 stopSDL env stoppable =
   case stoppable of
-    (PlayingSound channel _ _) -> do stopChannelAndCleanup env channel; pure (StoppedSound channel)
-    (PausedSound  channel _ _) -> do stopChannelAndCleanup env channel; pure (StoppedSound channel)
+    (PlayingChannel channel _ _) -> do stopChannelAndCleanup env channel; pure StoppedChannel
+    (PausedChannel  channel _ _) -> do stopChannelAndCleanup env channel; pure StoppedChannel
 
 hasFinishedSDL :: SDLSound I.Playing -> IO Bool
-hasFinishedSDL (PlayingSound _ finished _) = do
+hasFinishedSDL (PlayingChannel _ finished _) = do
   fin <- isEmptyMVar finished
   pure $ not fin
 
 awaitFinishedSDL :: SDLSound I.Playing -> IO ()
-awaitFinishedSDL (PlayingSound _ finished _) =
+awaitFinishedSDL (PlayingChannel _ finished _) =
   readMVar finished
 
 ----------------------------------------------------------------
@@ -213,8 +213,8 @@ awaitFinishedSDL (PlayingSound _ finished _) =
 setVolumeSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> I.Volume -> IO ()
 setVolumeSDL env adjustable vol =
   case adjustable of
-    (PlayingSound channel _ _) -> setV channel
-    (PausedSound  channel _ _) -> setV channel
+    (PlayingChannel channel _ _) -> setV channel
+    (PausedChannel  channel _ _) -> setV channel
   where
     setV channel = do
       modifyMVar_ env.volMap $ \vm -> pure (Map.insert channel vol vm)
@@ -226,8 +226,8 @@ setVolumeSDL env adjustable vol =
 getVolumeSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> IO I.Volume
 getVolumeSDL env adjustable =
   case adjustable of
-    (PlayingSound channel _ _) -> getV channel
-    (PausedSound  channel _ _) -> getV channel
+    (PlayingChannel channel _ _) -> getV channel
+    (PausedChannel  channel _ _) -> getV channel
   where
     getV ch = do
       vm <- readMVar env.volMap
@@ -236,8 +236,8 @@ getVolumeSDL env adjustable =
 setPanningSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> I.Panning -> IO ()
 setPanningSDL env adjustable pan =
   case adjustable of
-    (PlayingSound channel _ sType) -> setPan channel sType
-    (PausedSound  channel _ sType) -> setPan channel sType
+    (PlayingChannel channel _ sType) -> setPan channel sType
+    (PausedChannel  channel _ sType) -> setPan channel sType
   where
     setPan :: Mix.Channel -> I.SoundType -> IO ()
     setPan channel sType = do
@@ -258,8 +258,8 @@ setPanningSDL env adjustable pan =
 getPanningSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> IO I.Panning
 getPanningSDL env adjustable =
   case adjustable of
-    (PlayingSound ch _ _) -> getPan ch
-    (PausedSound  ch _ _) -> getPan ch
+    (PlayingChannel ch _ _) -> getPan ch
+    (PausedChannel  ch _ _) -> getPan ch
   where
     getPan ch = do
       pm <- readMVar env.panMap
@@ -317,6 +317,7 @@ makeBackendSDL env =
     , I.pauseGroupA    = pauseGroupSDL env
     , I.resumeGroupA   = resumeGroupSDL env
     , I.stopGroupA     = stopGroupSDL env
+    , I.isGroupPausedA = isGroupPausedSDL env
     , I.setGroupVolumeA = setGroupVolumeSDL env
     , I.getGroupVolumeA = getGroupVolumeSDL env
     , I.setGroupPanningA = setGroupPanningSDL env
@@ -356,8 +357,8 @@ makeGroupSDL env = do
 addToGroupSDL :: forall alive. I.Alive alive => EnvSDL -> I.Group SDLSound -> SDLSound alive -> IO ()
 addToGroupSDL env (I.GroupId gid) s = do
   ch <- case s of
-    PlayingSound c _ _ -> pure c
-    PausedSound  c _ _ -> pure c
+    PlayingChannel c _ _ -> pure c
+    PausedChannel  c _ _ -> pure c
   -- Enforce exclusive membership: remove from all groups, then add to target
   modifyMVar_ env.groupMap $ \gm -> case Map.lookup gid gm of
     Nothing -> pure gm
@@ -376,8 +377,8 @@ addToGroupSDL env (I.GroupId gid) s = do
 removeFromGroupSDL :: forall alive. I.Alive alive => EnvSDL -> I.Group SDLSound -> SDLSound alive -> IO ()
 removeFromGroupSDL env (I.GroupId gid) s = do
   ch <- case s of
-    PlayingSound c _ _ -> pure c
-    PausedSound  c _ _ -> pure c
+    PlayingChannel c _ _ -> pure c
+    PausedChannel  c _ _ -> pure c
   modifyMVar_ env.groupMap $ \gm -> case Map.lookup gid gm of
     Nothing -> pure gm
     Just gr -> do
@@ -466,6 +467,16 @@ getGroupPanningSDL env (I.GroupId gid) = do
   case Map.lookup gid gm of
     Nothing -> pure I.defaultPanning
     Just gr -> pure (gPanning gr)
+
+-- Queries
+isGroupPausedSDL :: EnvSDL -> I.Group SDLSound -> IO Bool
+isGroupPausedSDL env (I.GroupId gid) = do
+  gm <- readMVar env.groupMap
+  case Map.lookup gid gm of
+    Nothing -> pure False
+    Just gr -> pure (gPaused gr)
+
+-- removed: isGroupStoppedSDL (no longer part of API)
 
 ----------------------------------------------------------------
 -- Internal helpers: effective state application
