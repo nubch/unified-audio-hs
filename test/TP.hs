@@ -92,7 +92,7 @@ tp4 = do
   f2 <- hasFinished once
   liftIO $ f2 `shouldBe` True
 
-  twice <- play wav (Times 2)
+  twice <- play wav (LoopMode 2)
   write "Sound should play twice"
   awaitFinished twice
   f3 <- hasFinished twice

@@ -136,9 +136,9 @@ unloadSDL (LoadedSound chunk _) = do
 -- Play / Pause / Resume / Stop / Status
 ----------------------------------------------------------------
 
-playSDL :: EnvSDL -> SDLSound I.Loaded -> I.Times -> IO (SDLSound I.Playing)
+playSDL :: EnvSDL -> SDLSound I.Loaded -> I.LoopMode -> IO (SDLSound I.Playing)
 playSDL env (LoadedSound loaded sType) times = do
-  channel <- Mix.playOn Mix.AllChannels sdlTimes loaded
+  channel <- Mix.playOn Mix.AllChannels sdlLoopMode loaded
   done    <- newEmptyMVar
   modifyMVar_ env.finishMap $ \m -> pure $ Map.insert channel done m
   modifyMVar_ env.typeMap  $ \tm -> pure $ Map.insert channel sType tm
@@ -153,9 +153,8 @@ playSDL env (LoadedSound loaded sType) times = do
   setVolumeSDL env playingChannel I.defaultVolume
   pure playingChannel
   where
-    sdlTimes = case times of
+    sdlLoopMode = case times of
       I.Once    -> Mix.Once
-      I.Times n -> fromIntegral n
       I.Forever -> Mix.Forever
 
 pauseSDL :: EnvSDL -> SDLSound I.Playing -> IO (SDLSound I.Paused)

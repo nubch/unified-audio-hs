@@ -4,8 +4,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE KindSignatures #-}
 
 module UnifiedAudio.Effectful where
 
@@ -28,7 +26,7 @@ data Status = Loaded | Playing | Paused | Stopped | Unloaded
 data SoundType = Mono | Stereo
   deriving (Show, Eq)
 
-data Times = Once | Times Int | Forever
+data LoopMode = Once | Forever
   deriving (Show, Eq)
 
 --- Effectful
@@ -38,7 +36,7 @@ data Audio (s :: Status -> Type) :: Effect
 data AudioBackend (s :: Status -> Type) = AudioBackend
   { 
     loadA            :: Source -> SoundType -> IO (s 'Loaded)
-  , playA            :: s 'Loaded -> Times -> IO (s 'Playing)
+  , playA            :: s 'Loaded -> LoopMode -> IO (s 'Playing)
   , pauseA           :: s 'Playing -> IO (s 'Paused)
   , resumeA          :: s 'Paused  -> IO (s 'Playing)
 
@@ -102,11 +100,16 @@ resume channel = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.resumeA channel
 
-play :: Audio s :> es => s Loaded -> Times -> Eff es (s Playing)
+play :: Audio s :> es => s Loaded -> LoopMode -> Eff es (s Playing)
 play sound t = do
-  let normTimes = normalizeTimes t
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.playA sound normTimes
+  unsafeEff_ $ backend.playA sound t
+
+playOnce :: Audio s :> es => s Loaded -> Eff es (s Playing)
+playOnce sound = play sound Once
+
+playForever :: Audio s :> es => s Loaded -> Eff es (s Playing)
+playForever sound = play sound Forever
 
 makeGroup :: Audio s :> es => Eff es (Group s)
 makeGroup = do
@@ -206,10 +209,11 @@ awaitFinished channel = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.awaitFinishedA channel
 
---updateSystem :: Audio s :> es => s Loaded -> Eff es ()
---updateSystem loaded = do 
-  --AudioRep backend <- getStaticRep
-  --unsafeEff_ $ backend.updateSystemA loaded -- Placeholder for backends that need updating
+playOnGroup :: Audio s :> es => s Loaded -> Group s -> LoopMode ->  Eff es ()
+playOnGroup sound group loopMode = do
+  AudioRep AudioBackend{ addToGroupA = addGroup } <- getStaticRep
+  channel <- play sound loopMode
+  unsafeEff_ (addGroup group channel)
 
 --- Utilities
 
@@ -232,8 +236,3 @@ defaultPanning = mkPanning 0.0
 
 defaultVolume :: Volume
 defaultVolume = mkVolume 1.0
-
-normalizeTimes :: Times -> Times
-normalizeTimes = \case
-  Times n | n < 1 -> Once
-  t               -> t

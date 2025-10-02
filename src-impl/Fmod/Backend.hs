@@ -99,7 +99,7 @@ unloadFmod (LoadedSound sound) = do
 -- Play / Pause / Resume / Stop / Status
 ----------------------------------------------------------------
 
-playFmod :: EnvFMOD -> FmodState I.Loaded -> I.Times -> IO (FmodState I.Playing)
+playFmod :: EnvFMOD -> FmodState I.Loaded -> I.LoopMode -> IO (FmodState I.Playing)
 playFmod env (LoadedSound sound) times = do
   channel <- Safe.playSound env.system sound
   finished <- newEmptyMVar
@@ -108,17 +108,14 @@ playFmod env (LoadedSound sound) times = do
     modifyMVar_ env.finishMap (pure . Map.insert pCh finished)
     modifyMVar_ env.panMap  (pure . Map.insert pCh I.defaultPanning)
   paused <- pauseFmod (PlayingChannel channel finished sound)
-  applyTimes times paused
+  applyLoopMode times paused
   resumeFmod paused
 
-applyTimes :: I.Times -> FmodState I.Paused -> IO ()
-applyTimes t (PausedChannel ch _ _) = case t of
+applyLoopMode :: I.LoopMode -> FmodState I.Paused -> IO ()
+applyLoopMode t (PausedChannel ch _ _) = case t of
   I.Once -> do
     Safe.setChannelMode ch Safe.LoopOff
     setLoopCount ch 0
-  I.Times n -> do
-    Safe.setChannelMode ch Safe.LoopNormal
-    setLoopCount ch (n - 1)
   I.Forever -> do
     Safe.setChannelMode ch Safe.LoopNormal
     setLoopCount ch (-1)
