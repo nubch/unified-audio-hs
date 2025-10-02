@@ -209,11 +209,12 @@ awaitFinished channel = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.awaitFinishedA channel
 
-playOnGroup :: Audio s :> es => s Loaded -> Group s -> LoopMode ->  Eff es ()
+playOnGroup :: Audio s :> es => s Loaded -> Group s -> LoopMode ->  Eff es (s Playing)
 playOnGroup sound group loopMode = do
   AudioRep AudioBackend{ addToGroupA = addGroup } <- getStaticRep
   channel <- play sound loopMode
   unsafeEff_ (addGroup group channel)
+  pure channel
 
 --- Utilities
 
