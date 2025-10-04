@@ -27,7 +27,7 @@ import Foreign
 
 import Foreign.C ( CFloat, CInt(..), CUInt, withCString )
 import Control.Exception ( bracket )
-import Control.Monad ((<=<), when)
+import Control.Monad ((<=<), when, forM)
 
 import Control.Concurrent.MVar
 import qualified Data.Map.Strict as Map
@@ -166,6 +166,21 @@ getGroupVolume (ChannelGroup grp) =
     alloca $ \pOut -> do
       checkResult "ChannelGroup_GetVolume" =<< Raw.c_FMOD_ChannelGroup_GetVolume pGrp pOut
       realToFrac <$> peek pOut
+
+-- Enumerate current channels in a group
+getGroupChannels :: ChannelGroup -> IO [Channel]
+getGroupChannels (ChannelGroup grp) =
+  withForeignPtr grp $ \pGrp ->
+    alloca $ \pNum -> do
+      checkResult "ChannelGroup_GetNumChannels" =<< Raw.c_FMOD_ChannelGroup_GetNumChannels pGrp pNum
+      num <- peek pNum
+      let n = max 0 (fromIntegral num)
+      forM [0 .. n - 1] $ \i ->
+        alloca $ \pCh -> do
+          checkResult "ChannelGroup_GetChannel" =<< Raw.c_FMOD_ChannelGroup_GetChannel pGrp (fromIntegral i) pCh
+          chPtr <- peek pCh
+          fp    <- newForeignPtr_ chPtr
+          pure (Channel fp)
 
 stopGroup :: ChannelGroup -> IO ()
 stopGroup (ChannelGroup grp) =

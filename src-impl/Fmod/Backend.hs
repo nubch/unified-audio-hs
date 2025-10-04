@@ -8,7 +8,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use join" #-}
 
-module Fmod.Backend (runAudio, runAudioWith, UpdateMode(..)) where
+module Fmod.Backend (runAudio, runAudioWith) where
 
 ----------------------------------------------------------------
 -- Imports
@@ -53,8 +53,6 @@ import GHC.Float (properFractionDouble)
 
 type GroupMap = MVar (Map.Map Int Safe.ChannelGroup)
 type GroupPanningMap = MVar (Map.Map Int I.Panning)
-
-data UpdateMode = AutoHz Int | ManualTick (MVar ())
 
 type Finished = MVar ()
 
@@ -226,8 +224,8 @@ makeBackendFmod env =
       I.getGroupPanningA = getGroupPanningFmod env
     }
 
-runAudioWith :: (IOE :> es) => UpdateMode -> Eff (I.Audio FmodState : es) a -> Eff es a
-runAudioWith upMode eff =
+runAudioWith :: (IOE :> es) => Int -> Eff (I.Audio FmodState : es) a -> Eff es a
+runAudioWith hz eff =
   withEffToIO $ \runInIO ->
     -- All FMOD lifetime in one scope:
     Safe.withSystem $ \sys -> mask $ \restore -> do
@@ -249,12 +247,10 @@ runAudioWith upMode eff =
                             }
           backend = makeBackendFmod env
           runApp  = runInIO (evalStaticRep (I.AudioRep backend) eff)
-      pumpTid <- case upMode of
-        AutoHz hz -> do
+
+      pumpTid <- do
           let period = max 1 (1000000 `div` hz)
           forkIO $ forever $ Safe.systemUpdate sys >> threadDelay period 
-        ManualTick tick ->
-          forkIO $ forever $ takeMVar tick >> Safe.systemUpdate sys
 
       restore runApp `finally` do
         Safe.drainActive env.finishMap  -- setCallback NULL on any tracked channels
@@ -263,7 +259,7 @@ runAudioWith upMode eff =
         freeHaskellFunPtr cb
 
 runAudio :: (IOE :> es) => Eff (I.Audio FmodState : es) a -> Eff es a
-runAudio = runAudioWith (AutoHz 60)
+runAudio = runAudioWith 60
 
 ----------------------------------------------------------------
 -- Groups (FMOD)
@@ -318,6 +314,9 @@ resumeGroupFmod env (I.GroupId gid) = do
     Just grp -> do
       Safe.setGroupPaused grp False
       modifyMVar_ env.groupPausedMap $ \pm -> pure (Map.insert gid False pm)
+      -- Force-clear channel-level pause for all channels in this group
+      chans <- Safe.getGroupChannels grp
+      mapM_ (\ch -> Safe.setPaused False ch) chans
 
 setGroupVolumeFmod :: EnvFMOD -> I.Group FmodState -> I.Volume -> IO ()
 setGroupVolumeFmod env (I.GroupId gid) vol = do
