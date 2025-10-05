@@ -94,7 +94,7 @@ type Finished = MVar ()
 data ChannelState = ChannelState
   { chPanning :: I.Panning
   , chVolume  :: I.Volume
-  , chPaused  :: Bool -- base paused state
+  , chPaused  :: Bool
   , chType    :: I.SoundType
   }
 
@@ -118,7 +118,6 @@ data EnvSDL = EnvSDL
   , groupCounter :: MVar Int
   }
 
--- | SDL backend sound/channel handle indexed by logical status.
 data SDLSound :: I.Status -> Type where
   LoadedSound    :: Mix.Chunk -> I.SoundType -> SDLSound I.Loaded
   UnloadedSound  :: SDLSound I.Unloaded

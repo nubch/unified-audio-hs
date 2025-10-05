@@ -20,7 +20,7 @@ import Data.Maybe (fromMaybe)
 import Foreign ( FunPtr, freeHaskellFunPtr)
 import Effectful (Eff, IOE, type (:>), withEffToIO)
 import Effectful.Dispatch.Static
-  ( evalStaticRep, unsafeEff_
+  ( evalStaticRep
   )
 
 -- Interface / Safe layer
@@ -28,24 +28,23 @@ import qualified UnifiedAudio.Effectful as I
 import qualified Fmod.Safe as Safe
 import qualified Data.Map.Strict as Map
 import Control.Concurrent
+    ( MVar,
+      newMVar,
+      modifyMVar_,
+      tryPutMVar,
+      newEmptyMVar,
+      isEmptyMVar,
+      readMVar,
+      modifyMVar,
+      killThread,
+      threadDelay,
+      forkIO )
 
 -- Concurrency / system
 import Control.Exception ( mask, finally )
 import Control.Monad (forever)
-import Control.Concurrent.MVar
-    ( MVar,
-      modifyMVar,
-      modifyMVar_,
-      isEmptyMVar,
-      newEmptyMVar,
-      readMVar,
-      takeMVar,
-      putMVar,
-      tryPutMVar,
-      newMVar )
 import Fmod.Safe (setLoopCount)
 import System.IO (hFlush, stdout)
-import GHC.Float (properFractionDouble)
 
 ----------------------------------------------------------------
 -- Types
@@ -90,15 +89,12 @@ unloadFmod (LoadedSound sound) = do
    Safe.finalizeSound sound
    pure UnloadedSound
 
---updateFmod :: EnvFMOD -> FmodState I.Loaded -> IO ()
---updateFmod env (LoadedSound sound) = Safe.systemUpdate env.system sound
-
 ----------------------------------------------------------------
 -- Play / Pause / Resume / Stop / Status
 ----------------------------------------------------------------
 
 playFmod :: EnvFMOD -> FmodState I.Loaded -> I.LoopMode -> IO (FmodState I.Playing)
-playFmod env (LoadedSound sound) times = do
+playFmod env (LoadedSound sound) loopmode = do
   channel <- Safe.playSound env.system sound
   finished <- newEmptyMVar
   Safe.setChannelCallback channel env.callback
@@ -106,7 +102,7 @@ playFmod env (LoadedSound sound) times = do
     modifyMVar_ env.finishMap (pure . Map.insert pCh finished)
     modifyMVar_ env.panMap  (pure . Map.insert pCh I.defaultPanning)
   paused <- pauseFmod (PlayingChannel channel finished sound)
-  applyLoopMode times paused
+  applyLoopMode loopmode paused
   resumeFmod paused
 
 applyLoopMode :: I.LoopMode -> FmodState I.Paused -> IO ()
