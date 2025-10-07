@@ -47,10 +47,10 @@ mockBackend =
         PlayingSound pl -> logMock $ "Setting volume of " ++ pl ++ " to " ++ show vol
         PausedSound  pl -> logMock $ "Setting volume of (paused) " ++ pl ++ " to " ++ show vol,
       getVolumeA = \_ -> pure defaultVolume,
-      setPanningA = \ch pan -> case ch of
-        PlayingSound pl -> logMock $ "Setting panning of " ++ pl ++ " to " ++ show pan
-        PausedSound  pl -> logMock $ "Setting panning of (paused) " ++ pl ++ " to " ++ show pan,
-      getPanningA = \_ -> pure defaultPanning,
+      setPlacementA = \ch pan -> case ch of
+        PlayingSound pl -> logMock $ "Setting Placement of " ++ pl ++ " to " ++ show pan
+        PausedSound  pl -> logMock $ "Setting Placement of (paused) " ++ pl ++ " to " ++ show pan,
+      getPlacementA = \_ -> pure defaultPlacement,
       stopChannelA = \ch -> case ch of
         PlayingSound pl -> do logMock $ "Stopping channel " ++ pl; pure (StoppedSound pl)
         PausedSound  pl -> do logMock $ "Stopping channel (paused) " ++ pl; pure (StoppedSound pl),
@@ -77,8 +77,8 @@ mockBackend =
         pure False,
       setGroupVolumeA = \(GroupId gid) vol -> logMock $ "setGroupVolume gid=" ++ show gid ++ " vol=" ++ show vol,
       getGroupVolumeA = \_ -> pure defaultVolume,
-      setGroupPanningA = \(GroupId gid) pan -> logMock $ "setGroupPanning gid=" ++ show gid ++ " pan=" ++ show pan
-    , getGroupPanningA = \_ -> pure defaultPanning
+      setGroupPlacementA = \(GroupId gid) pan -> logMock $ "setGroupPlacement gid=" ++ show gid ++ " pan=" ++ show pan
+    , getGroupPlacementA = \_ -> pure defaultPlacement
     }
 
 logMock :: String -> IO ()

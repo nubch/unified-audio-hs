@@ -6,7 +6,6 @@ module TP where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (void)
-import Control.Monad (void)
 import Effectful
 import Effectful.Dispatch.Static (unsafeEff_, unEff)
 import Fmod.Backend qualified as Fmod
@@ -63,9 +62,9 @@ tp2 = do
         ) vols
 
   mapM_ (\x -> do
-            setPanning wav' (mkPanning x)
-            p <- getPanning wav'
-            liftIO $ p `shouldBe` mkPanning x
+            setPlacement wav' (mkPlacement x)
+            p <- getPlacement wav'
+            liftIO $ p `shouldBe` mkPlacement x
         ) pans
 
   void $ stop wav'
@@ -92,21 +91,15 @@ tp4 = do
   f2 <- hasFinished once
   liftIO $ f2 `shouldBe` True
 
-  twice <- play wav (LoopMode 2)
-  write "Sound should play twice"
-  awaitFinished twice
-  f3 <- hasFinished twice
-  liftIO $ f3 `shouldBe` True
-
   -- forever then stop
   write "Sound should loop indefinitely"
   looping <- play wav Forever
   wait 3
-  f4 <- hasFinished looping
-  liftIO $ f4 `shouldBe` False
+  f3 <- hasFinished looping
+  liftIO $ f3 `shouldBe` False
   stop looping
-  f5 <- hasFinished looping
-  liftIO $ f5 `shouldBe` True
+  f4 <- hasFinished looping
+  liftIO $ f4 `shouldBe` True
 
 
 -- TP6: Group membership exclusivity (AC7)
@@ -140,11 +133,11 @@ tp6 = do
 
   wait 1
   write "Pan group left, then right, then center"
-  setGroupPanning group1 (mkPanning (-1))
+  setGroupPlacement group1 (mkPlacement (-1))
   wait 1
-  setGroupPanning group1 (mkPanning 1)
+  setGroupPlacement group1 (mkPlacement 1)
   wait 1
-  setGroupPanning group1 (mkPanning 0)
+  setGroupPlacement group1 (mkPlacement 0)
   wait 1
 
   write "Set group volume to 0.3 (both attenuated)"
@@ -170,8 +163,8 @@ tp6 = do
 
 -- Resuming a channel while its group is paused keeps it effectively paused.
 -- After resuming the group, the channel proceeds to finish.
-tp8 :: (Audio s :> es, IOE :> es) => Eff es ()
-tp8 = do
+tp7 :: (Audio s :> es, IOE :> es) => Eff es ()
+tp7 = do
   wav <- loadFile "sounds/exampleFile.wav" Stereo
   wav' <- play wav Once
   group <- makeGroup

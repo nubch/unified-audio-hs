@@ -42,8 +42,8 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
 
   , setVolumeA       :: forall alive. Alive alive => s alive -> Volume  -> IO ()
   , getVolumeA       :: forall alive. Alive alive => s alive -> IO Volume
-  , setPanningA      :: forall alive. Alive alive => s alive -> Panning -> IO ()
-  , getPanningA      :: forall alive. Alive alive => s alive -> IO Panning
+  , setPlacementA      :: forall alive. Alive alive => s alive -> Placement -> IO ()
+  , getPlacementA      :: forall alive. Alive alive => s alive -> IO Placement
   , stopChannelA     :: forall alive. Alive alive => s alive -> IO (s 'Stopped)
 
   , hasFinishedA     :: s 'Playing -> IO Bool
@@ -58,8 +58,8 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
   , isGroupPausedA   :: Group s -> IO Bool
   , setGroupVolumeA  :: Group s -> Volume -> IO ()
   , getGroupVolumeA  :: Group s -> IO Volume
-  , setGroupPanningA :: Group s -> Panning -> IO ()
-  , getGroupPanningA :: Group s -> IO Panning
+  , setGroupPlacementA :: Group s -> Placement -> IO ()
+  , getGroupPlacementA :: Group s -> IO Placement
   }
 
 type instance DispatchOf (Audio s) = Static WithSideEffects
@@ -67,7 +67,7 @@ newtype instance StaticRep (Audio s) = AudioRep (AudioBackend s)
 
 newtype Volume = Volume Float deriving (Show, Eq) -- Only values between 0 and 1
 
-newtype Panning = Panning Float deriving (Show, Eq)
+newtype Placement = Placement Float deriving (Show, Eq)
 
 -- Single constraint family for operations on active channels (playing/paused)
 type family Alive (st :: Status) :: Constraint where
@@ -151,14 +151,14 @@ getGroupVolume group = do
   AudioRep AudioBackend{ getGroupVolumeA = getGV } <- getStaticRep
   unsafeEff_ (getGV group)
 
-setGroupPanning :: Audio s :> es => Group s -> Panning -> Eff es ()
-setGroupPanning group pan = do
-  AudioRep AudioBackend{ setGroupPanningA = setGP } <- getStaticRep
+setGroupPlacement :: Audio s :> es => Group s -> Placement -> Eff es ()
+setGroupPlacement group pan = do
+  AudioRep AudioBackend{ setGroupPlacementA = setGP } <- getStaticRep
   unsafeEff_ (setGP group pan)
 
-getGroupPanning :: Audio s :> es => Group s -> Eff es Panning
-getGroupPanning group = do
-  AudioRep AudioBackend{ getGroupPanningA = getGP } <- getStaticRep
+getGroupPlacement :: Audio s :> es => Group s -> Eff es Placement
+getGroupPlacement group = do
+  AudioRep AudioBackend{ getGroupPlacementA = getGP } <- getStaticRep
   unsafeEff_ (getGP group)
 
 isGroupPaused :: Audio s :> es => Group s -> Eff es Bool
@@ -189,14 +189,14 @@ getVolume channel = do
 mute :: (Audio s :> es, Alive alive) => s alive -> Eff es ()
 mute channel = setVolume channel (mkVolume 0.0)
 
-setPanning :: (Audio s :> es, Alive alive) => s alive -> Panning -> Eff es ()
-setPanning channel panning = do
-  AudioRep AudioBackend{ setPanningA = setPan } <- getStaticRep
-  unsafeEff_ (setPan channel panning)
+setPlacement :: (Audio s :> es, Alive alive) => s alive -> Placement -> Eff es ()
+setPlacement channel placement = do
+  AudioRep AudioBackend{ setPlacementA = setPan } <- getStaticRep
+  unsafeEff_ (setPan channel placement)
 
-getPanning :: (Audio s :> es, Alive alive) => s alive -> Eff es Panning
-getPanning channel = do
-  AudioRep AudioBackend{ getPanningA = getPan } <- getStaticRep
+getPlacement :: (Audio s :> es, Alive alive) => s alive -> Eff es Placement
+getPlacement channel = do
+  AudioRep AudioBackend{ getPlacementA = getPan } <- getStaticRep
   unsafeEff_ (getPan channel)
 
 hasFinished :: Audio s :> es => s Playing -> Eff es Bool
@@ -218,12 +218,12 @@ playOnGroup sound group loopMode = do
 
 --- Utilities
 
-mkPanning :: Float -> Panning
-mkPanning x = Panning (clamp x)
+mkPlacement :: Float -> Placement
+mkPlacement x = Placement (clamp x)
   where clamp = max (-1.0) . min 1.0
 
-unPanning :: Panning -> Float
-unPanning (Panning x) = x
+unPlacement :: Placement -> Float
+unPlacement (Placement x) = x
 
 mkVolume :: Float -> Volume
 mkVolume x = Volume (clamp x)
@@ -232,8 +232,8 @@ mkVolume x = Volume (clamp x)
 unVolume :: Volume -> Float
 unVolume (Volume v) = v
 
-defaultPanning :: Panning
-defaultPanning = mkPanning 0.0
+defaultPlacement :: Placement
+defaultPlacement = mkPlacement 0.0
 
 defaultVolume :: Volume
 defaultVolume = mkVolume 1.0

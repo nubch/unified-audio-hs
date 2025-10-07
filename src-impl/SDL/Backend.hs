@@ -49,8 +49,8 @@ makeBackendSDL env =
     , I.loadA          = loadSDL
     , I.pauseA         = pauseSDL env
     , I.resumeA        = resumeSDL env
-    , I.setPanningA    = setPanningSDL env
-    , I.getPanningA    = getPanningSDL env
+    , I.setPlacementA    = setPlacementSDL env
+    , I.getPlacementA    = getPlacementSDL env
     , I.getVolumeA     = getVolumeSDL env
     , I.setVolumeA     = setVolumeSDL env
     , I.unloadA        = unloadSDL
@@ -65,8 +65,8 @@ makeBackendSDL env =
     , I.isGroupPausedA = isGroupPausedSDL env
     , I.setGroupVolumeA = setGroupVolumeSDL env
     , I.getGroupVolumeA = getGroupVolumeSDL env
-    , I.setGroupPanningA = setGroupPanningSDL env
-    , I.getGroupPanningA = getGroupPanningSDL env
+    , I.setGroupPlacementA = setGroupPlacementSDL env
+    , I.getGroupPlacementA = getGroupPlacementSDL env
     }
 
 -- | Run the effectful computation with the SDL Handler.
@@ -92,7 +92,7 @@ type Finished = MVar ()
 
 -- Base per-channel state (not including group effects)
 data ChannelState = ChannelState
-  { chPanning :: I.Panning
+  { chPlacement :: I.Placement
   , chVolume  :: I.Volume
   , chPaused  :: Bool
   , chType    :: I.SoundType
@@ -104,7 +104,7 @@ data GroupSDL = GroupSDL
   { gPaused  :: Bool
   , gMembers :: Set.Set Mix.Channel
   , gVolume  :: I.Volume
-  , gPanning :: I.Panning
+  , gPlacement :: I.Placement
   }
 
 type GroupMap = MVar (Map.Map Int GroupSDL)
@@ -197,7 +197,7 @@ playSDL env (LoadedSound loaded sType) times = do
 
   -- Initialize per-channel state
   modifyMVar_ env.chanState $ \m ->
-    let cs = ChannelState { chPanning = I.defaultPanning
+    let cs = ChannelState { chPlacement = I.defaultPlacement
                           , chVolume  = I.defaultVolume
                           , chPaused  = False
                           , chType    = sType
@@ -206,7 +206,7 @@ playSDL env (LoadedSound loaded sType) times = do
 
   -- Reset pan and volume if channel gets reused
   let playingChannel = PlayingChannel channel done
-  setPanningSDL env playingChannel I.defaultPanning
+  setPlacementSDL env playingChannel I.defaultPlacement
   setVolumeSDL env playingChannel I.defaultVolume
   pure playingChannel
   where
@@ -269,7 +269,7 @@ awaitFinishedSDL (PlayingChannel _ finished) =
   readMVar finished
 
 ----------------------------------------------------------------
--- Volume / Panning (and helpers)
+-- Volume / Placement (and helpers)
 ----------------------------------------------------------------
 -- | Set per-channel base volume and re-apply effective volume/pan.
 setVolumeSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> I.Volume -> IO ()
@@ -292,24 +292,24 @@ getVolumeSDL env adjustable = do
   m <- readMVar env.chanState
   pure $ maybe I.defaultVolume chVolume (Map.lookup ch m)
 
--- | Set per-channel base panning and re-apply effective panning.
-setPanningSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> I.Panning -> IO ()
-setPanningSDL env alive pan = do
+-- | Set per-channel base Placement and re-apply effective Placement.
+setPlacementSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> I.Placement -> IO ()
+setPlacementSDL env alive pan = do
   let channel = getAliveChannel alive
   updated <- modifyMVar env.chanState $ \m ->
     case Map.lookup channel m of
       Just cs ->
-        let cs' = cs { chPanning = pan }
+        let cs' = cs { chPlacement = pan }
         in pure (Map.insert channel cs' m, True)
       Nothing -> pure (m, False)
   when updated $ applyEffectiveForChannel env channel
 
--- | Get per-channel base panning (not the SDL-effective values).
-getPanningSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> IO I.Panning
-getPanningSDL env alive = do
+-- | Get per-channel base Placement (not the SDL-effective values).
+getPlacementSDL :: forall alive. I.Alive alive => EnvSDL -> SDLSound alive -> IO I.Placement
+getPlacementSDL env alive = do
   let ch = getAliveChannel alive
   m <- readMVar env.chanState
-  pure $ maybe (I.mkPanning 0) chPanning (Map.lookup ch m)
+  pure $ maybe (I.mkPlacement 0) chPlacement (Map.lookup ch m)
 
 -- | Multiply two logical volumes.
 mulVolume :: I.Volume -> I.Volume -> I.Volume
@@ -350,7 +350,7 @@ makeGroupSDL env = do
         { gPaused = False
         , gMembers = Set.empty
         , gVolume = I.defaultVolume
-        , gPanning = I.defaultPanning
+        , gPlacement = I.defaultPlacement
         }
   modifyMVar_ env.groupMap $ \gm -> pure (Map.insert gid group gm)
   pure (I.GroupId gid)
@@ -441,13 +441,13 @@ setGroupVolumeSDL env (I.GroupId gid) vol = do
     Nothing -> pure ()
     Just gr -> mapM_ (applyEffectiveForChannel env) (Set.toList (gMembers gr))
 
--- | Set group panning and re-apply effective settings to members.
-setGroupPanningSDL :: EnvSDL -> I.Group SDLSound -> I.Panning -> IO ()
-setGroupPanningSDL env (I.GroupId gid) pan = do
+-- | Set group Placement and re-apply effective settings to members.
+setGroupPlacementSDL :: EnvSDL -> I.Group SDLSound -> I.Placement -> IO ()
+setGroupPlacementSDL env (I.GroupId gid) pan = do
   modifyMVar_ env.groupMap $ \gm -> case Map.lookup gid gm of
     Nothing -> pure gm
-    Just gr -> pure (Map.insert gid gr{ gPanning = pan } gm)
-  -- Update panning for current members
+    Just gr -> pure (Map.insert gid gr{ gPlacement = pan } gm)
+  -- Update Placement for current members
   gm <- readMVar env.groupMap
   case Map.lookup gid gm of
     Nothing -> pure ()
@@ -461,13 +461,13 @@ getGroupVolumeSDL env (I.GroupId gid) = do
     Nothing -> pure I.defaultVolume
     Just gr -> pure (gVolume gr)
 
--- | Get the group's logical panning (defaults to center if missing).
-getGroupPanningSDL :: EnvSDL -> I.Group SDLSound -> IO I.Panning
-getGroupPanningSDL env (I.GroupId gid) = do
+-- | Get the group's logical Placement (defaults to center if missing).
+getGroupPlacementSDL :: EnvSDL -> I.Group SDLSound -> IO I.Placement
+getGroupPlacementSDL env (I.GroupId gid) = do
   gm <- readMVar env.groupMap
   case Map.lookup gid gm of
-    Nothing -> pure I.defaultPanning
-    Just gr -> pure (gPanning gr)
+    Nothing -> pure I.defaultPlacement
+    Just gr -> pure (gPlacement gr)
 
 -- | Check if a group is marked paused.
 isGroupPausedSDL :: EnvSDL -> I.Group SDLSound -> IO Bool
@@ -491,20 +491,20 @@ applyEffectiveForChannel env ch = do
     pure $ maybe I.defaultVolume chVolume (Map.lookup ch stateMap)
   gVol  <- getGroupVolumeForChannel env ch
   Mix.setVolume (toSDLVolume (mulVolume baseV gVol)) ch
-  -- panning: multiply L/R gains from base and group
+  -- Placement: multiply L/R gains from base and group
   baseP <- do
     stateMap <- readMVar env.chanState
-    pure $ maybe I.defaultPanning chPanning (Map.lookup ch stateMap)
-  gPan  <- getGroupPanningForChannel env ch
+    pure $ maybe I.defaultPlacement chPlacement (Map.lookup ch stateMap)
+  gPan  <- getGroupPlacementForChannel env ch
   sType <- do
     stateMap <- readMVar env.chanState
     pure $ maybe I.Stereo chType (Map.lookup ch stateMap)
   let (lBase, rBase) = case sType of
-                         I.Mono   -> panGainsMono   (I.unPanning baseP)
-                         I.Stereo -> panGainsStereo (I.unPanning baseP)
+                         I.Mono   -> panGainsMono   (I.unPlacement baseP)
+                         I.Stereo -> panGainsStereo (I.unPlacement baseP)
       (lGrp,  rGrp)  = case sType of
-                         I.Mono   -> panGainsMono   (I.unPanning gPan)
-                         I.Stereo -> panGainsStereo (I.unPanning gPan)
+                         I.Mono   -> panGainsMono   (I.unPlacement gPan)
+                         I.Stereo -> panGainsStereo (I.unPlacement gPan)
       lGain = I.mkVolume (lBase * lGrp)
       rGain = I.mkVolume (rBase * rGrp)
       lEff  = toSDLVolume $ mulVolume (mulVolume baseV gVol) lGain
@@ -536,11 +536,11 @@ getGroupVolumeForChannel env ch = do
   mGr <- getGroupForChannel env ch
   pure $ maybe I.defaultVolume gVolume mGr
 
--- | Get the group's panning for a given channel (defaults to center when ungrouped).
-getGroupPanningForChannel :: EnvSDL -> Mix.Channel -> IO I.Panning
-getGroupPanningForChannel env ch = do
+-- | Get the group's Placement for a given channel (defaults to center when ungrouped).
+getGroupPlacementForChannel :: EnvSDL -> Mix.Channel -> IO I.Placement
+getGroupPlacementForChannel env ch = do
   mGr <- getGroupForChannel env ch
-  pure $ maybe I.defaultPanning gPanning mGr
+  pure $ maybe I.defaultPlacement gPlacement mGr
 
 -- | Get the group's paused state for a given channel (defaults to False when ungrouped).
 getGroupPausedForChannel :: EnvSDL -> Mix.Channel -> IO Bool

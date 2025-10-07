@@ -1,40 +1,88 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
-module Fmod.Safe where
 
-import qualified Fmod.Raw as Raw
-import qualified Data.ByteString.Internal as BS (ByteString(..))
-import qualified Data.ByteString as BS
-
-import qualified UnifiedAudio.Effectful as I
-import Fmod.Result ( checkResult, invalidHandleOrOk, )
-import Foreign
-    (
-      alloca,
-      nullFunPtr,
-      Ptr,
-      fromBool,
-      newForeignPtr_,
-      withForeignPtr,
-      nullPtr,
-      newForeignPtr,
-      Storable(peek),
-      FinalizerPtr,
-      ForeignPtr,
-      castPtr,
-      FunPtr,
-      finalizeForeignPtr,
-      plusPtr)
-
-import Foreign.C ( CFloat, CInt(..), CUInt, withCString )
-import Control.Exception ( bracket )
-import Control.Monad ((<=<), when, forM)
+module Fmod.Safe
+  ( -- Types & callbacks
+    Channel,
+    ChannelCB,
+    ChannelGroup,
+    FinishMap,
+    PanMap,
+    Sound,
+    System,
+    LoopMode (..),
+    -- Creation / setup
+    setupFMODEnv,
+    withSystem,
+    createSound,
+    createSoundFromBytes,
+    playSound,
+    createChannelGroup,
+    getMasterChannelGroup,
+    -- Channel helpers
+    withChannelPtr,
+    setChannelCallback,
+    setChannelGroup,
+    setChannelMode,
+    setLoopCount,
+    setPaused,
+    tryStopChannel,
+    finalizeSound,
+    -- Volume / Placement / groups
+    setVolume,
+    getChannelVolume,
+    setPlacement,
+    setGroupPaused,
+    setGroupVolume,
+    setGroupPlacement,
+    getGroupVolume,
+    getGroupChannels,
+    stopGroup,
+    -- Misc
+    systemUpdate,
+    drainActive,
+  )
+where
 
 import Control.Concurrent.MVar
+  ( MVar,
+    modifyMVar_,
+    newMVar,
+    swapMVar,
+    tryPutMVar,
+  )
+import Control.Exception (bracket)
+import Control.Monad (forM, when, (<=<))
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BS (ByteString (..))
 import qualified Data.Map.Strict as Map
+import qualified Fmod.Raw as Raw
+import Fmod.Result (checkResult, invalidHandleOrOk)
+import Foreign
+  ( FinalizerPtr,
+    ForeignPtr,
+    FunPtr,
+    Ptr,
+    Storable (peek),
+    alloca,
+    castPtr,
+    finalizeForeignPtr,
+    fromBool,
+    newForeignPtr,
+    newForeignPtr_,
+    nullFunPtr,
+    nullPtr,
+    plusPtr,
+    withForeignPtr,
+  )
+import Foreign.C (CFloat, CInt (..), CUInt, withCString)
+import qualified UnifiedAudio.Effectful as I
 
-newtype System    = System  (ForeignPtr Raw.FMODSystem)
-newtype Sound     = Sound   (ForeignPtr Raw.FMODSound)
-newtype Channel   = Channel   (ForeignPtr Raw.FMODChannel)
+newtype System = System (ForeignPtr Raw.FMODSystem)
+
+newtype Sound = Sound (ForeignPtr Raw.FMODSound)
+
+newtype Channel = Channel (ForeignPtr Raw.FMODChannel)
+
 newtype ChannelGroup = ChannelGroup (ForeignPtr Raw.FMODChannelGroup)
 
 version :: CUInt
@@ -43,13 +91,13 @@ version = 0x00020221
 data LoopMode = LoopOff | LoopNormal
 
 toCuInt :: LoopMode -> CInt
-toCuInt LoopOff   = 0x00000001
+toCuInt LoopOff = 0x00000001
 toCuInt LoopNormal = 0x00000002
 
 type ChannelCB =
   Ptr () -> -- channel that triggers (PTR () here so we dont have to define channelControl)
-  CInt   -> -- callback type (see FMOD_CHANNEL_CALLBACKTYPE)
-  CInt   -> -- command data (callback specific)
+  CInt -> -- callback type (see FMOD_CHANNEL_CALLBACKTYPE)
+  CInt -> -- command data (callback specific)
   Ptr () ->
   Ptr () ->
   IO CInt
@@ -59,13 +107,13 @@ foreign import ccall "wrapper"
 
 type FinishMap = MVar (Map.Map (Ptr Raw.FMODChannel) (MVar ()))
 
-type PanMap = MVar (Map.Map (Ptr Raw.FMODChannel) I.Panning)
+type PanMap = MVar (Map.Map (Ptr Raw.FMODChannel) I.Placement)
 
 setupFMODEnv :: IO (FinishMap, PanMap, FunPtr ChannelCB)
 setupFMODEnv = do
   finishMap <- newMVar Map.empty
-  stateMap  <- newMVar Map.empty
-  callback  <- mkChannelCallback $ \channelControl _controlType callbackType _ _-> do
+  stateMap <- newMVar Map.empty
+  callback <- mkChannelCallback $ \channelControl _controlType callbackType _ _ -> do
     when (callbackType == 0) $ do
       let pChannel = castPtr channelControl :: Ptr Raw.FMODChannel
       modifyMVar_ finishMap $ \finMap ->
@@ -73,18 +121,20 @@ setupFMODEnv = do
           Just finishedVar -> do
             _ <- tryPutMVar finishedVar ()
             pure (Map.delete pChannel finMap)
-          Nothing   -> pure finMap
+          Nothing -> pure finMap
     pure 0
   pure (finishMap, stateMap, callback)
 
 drainActive :: FinishMap -> IO ()
 drainActive fm = do
   snapshot <- swapMVar fm Map.empty
-  mapM_ (\(pCh, done) -> do
-           _ <- tryPutMVar done ()
-           detachCallbackPtr pCh
-           tryStopPtr      pCh
-        ) (Map.toList snapshot)
+  mapM_
+    ( \(pCh, done) -> do
+        _ <- tryPutMVar done ()
+        detachCallbackPtr pCh
+        tryStopPtr pCh
+    )
+    (Map.toList snapshot)
 
 setChannelCallback :: Channel -> FunPtr ChannelCB -> IO ()
 setChannelCallback (Channel ch) cb = do
@@ -101,54 +151,57 @@ withSystem = bracket acquire release
       fp <- newForeignPtr c_FMOD_System_Release system
       pure (System fp)
     release (System fp) = do
-      finalizeForeignPtr fp   -- << run Release deterministically
+      finalizeForeignPtr fp -- << run Release deterministically
 
 createSound :: System -> FilePath -> IO Sound
 createSound (System sys) path =
   withForeignPtr sys $ \pSys ->
-  withCString path   $ \cPath ->
-  alloca             $ \allocSound -> do
-    checkResult "CreateSound" =<< Raw.c_FMOD_System_CreateSound pSys cPath 0 nullPtr allocSound
-    sndPtr <- peek allocSound
-    fp     <- newForeignPtr c_FMOD_Sound_Release sndPtr
-    return (Sound fp)
+    withCString path $ \cPath ->
+      alloca $ \allocSound -> do
+        checkResult "CreateSound" =<< Raw.c_FMOD_System_CreateSound pSys cPath 0 nullPtr allocSound
+        sndPtr <- peek allocSound
+        fp <- newForeignPtr c_FMOD_Sound_Release sndPtr
+        return (Sound fp)
 
 playSound :: System -> Sound -> IO Channel
 playSound (System sys) (Sound sound) =
-  withForeignPtr sys   $ \pSys ->
-  withForeignPtr sound $ \pSound ->
-  alloca               $ \allocChan -> do
-    checkResult "playSound" =<< Raw.c_FMOD_System_PlaySound pSys pSound nullPtr 0 allocChan
-    chPtr <- peek allocChan
-    fp    <- newForeignPtr_ chPtr
-    return (Channel fp)
+  withForeignPtr sys $ \pSys ->
+    withForeignPtr sound $ \pSound ->
+      alloca $ \allocChan -> do
+        checkResult "playSound" =<< Raw.c_FMOD_System_PlaySound pSys pSound nullPtr 0 allocChan
+        chPtr <- peek allocChan
+        fp <- newForeignPtr_ chPtr
+        return (Channel fp)
 
 -- ChannelGroup: creation and control
 
 createChannelGroup :: System -> String -> IO ChannelGroup
 createChannelGroup (System sys) name =
   withForeignPtr sys $ \pSys ->
-  withCString name   $ \cName ->
-  alloca             $ \allocGrp -> do
-    checkResult "CreateChannelGroup" =<< Raw.c_FMOD_System_CreateChannelGroup pSys cName allocGrp
-    grpPtr <- peek allocGrp
-    fp     <- newForeignPtr c_FMOD_ChannelGroup_Release grpPtr
-    pure (ChannelGroup fp)
+    withCString name $ \cName ->
+      alloca $ \allocGrp -> do
+        checkResult "CreateChannelGroup" =<< Raw.c_FMOD_System_CreateChannelGroup pSys cName allocGrp
+        grpPtr <- peek allocGrp
+        fp <- newForeignPtr c_FMOD_ChannelGroup_Release grpPtr
+        pure (ChannelGroup fp)
 
 getMasterChannelGroup :: System -> IO ChannelGroup
 getMasterChannelGroup (System sys) =
   withForeignPtr sys $ \pSys ->
-  alloca $ \allocGrp -> do
-    checkResult "GetMasterChannelGroup" =<< Raw.c_FMOD_System_GetMasterChannelGroup pSys allocGrp
-    grpPtr <- peek allocGrp
-    fp     <- newForeignPtr c_FMOD_ChannelGroup_Release grpPtr
-    pure (ChannelGroup fp)
+    alloca $ \allocGrp -> do
+      checkResult "GetMasterChannelGroup" =<< Raw.c_FMOD_System_GetMasterChannelGroup pSys allocGrp
+      grpPtr <- peek allocGrp
+      fp <- newForeignPtr c_FMOD_ChannelGroup_Release grpPtr
+      pure (ChannelGroup fp)
 
 setChannelGroup :: Channel -> ChannelGroup -> IO ()
 setChannelGroup (Channel ch) (ChannelGroup grp) =
-  withForeignPtr ch  $ \pCh ->
-  withForeignPtr grp (checkResult "Channel_SetChannelGroup"
-   <=< Raw.c_FMOD_Channel_SetChannelGroup pCh)
+  withForeignPtr ch $ \pCh ->
+    withForeignPtr
+      grp
+      ( checkResult "Channel_SetChannelGroup"
+          <=< Raw.c_FMOD_Channel_SetChannelGroup pCh
+      )
 
 setGroupPaused :: ChannelGroup -> Bool -> IO ()
 setGroupPaused (ChannelGroup grp) paused =
@@ -179,15 +232,15 @@ getGroupChannels (ChannelGroup grp) =
         alloca $ \pCh -> do
           checkResult "ChannelGroup_GetChannel" =<< Raw.c_FMOD_ChannelGroup_GetChannel pGrp (fromIntegral i) pCh
           chPtr <- peek pCh
-          fp    <- newForeignPtr_ chPtr
+          fp <- newForeignPtr_ chPtr
           pure (Channel fp)
 
 stopGroup :: ChannelGroup -> IO ()
 stopGroup (ChannelGroup grp) =
   withForeignPtr grp (checkResult "ChannelGroup_Stop" <=< Raw.c_FMOD_ChannelGroup_Stop)
 
-setGroupPanning :: ChannelGroup -> CFloat -> IO ()
-setGroupPanning (ChannelGroup grp) pan =
+setGroupPlacement :: ChannelGroup -> CFloat -> IO ()
+setGroupPlacement (ChannelGroup grp) pan =
   withForeignPtr grp $ \pGrp ->
     checkResult "ChannelGroup_SetPan" =<< Raw.c_FMOD_ChannelGroup_SetPan pGrp pan
 
@@ -218,10 +271,10 @@ systemUpdate :: System -> IO ()
 systemUpdate (System sys) =
   withForeignPtr sys (checkResult "sysUpdate" <=< Raw.c_FMOD_System_Update)
 
-setPanning :: Channel -> CFloat -> IO ()
-setPanning (Channel channel) panning =
+setPlacement :: Channel -> CFloat -> IO ()
+setPlacement (Channel channel) placement =
   withForeignPtr channel $ \pChannel ->
-    checkResult "setPanning" =<< Raw.c_FMOD_Channel_SetPan pChannel panning
+    checkResult "setPlacement" =<< Raw.c_FMOD_Channel_SetPan pChannel placement
 
 getChannelVolume :: Channel -> IO Float
 getChannelVolume (Channel ch) =
@@ -229,10 +282,6 @@ getChannelVolume (Channel ch) =
     alloca $ \pOut -> do
       checkResult "getChannelVolume" =<< Raw.c_FMOD_Channel_GetVolume pCh pOut
       realToFrac <$> peek pOut
-
-stopChannel :: Channel -> IO ()
-stopChannel (Channel channel) =
-  withForeignPtr channel (checkResult "stopChannel" <=< Raw.c_FMOD_Channel_Stop)
 
 setLoopCount :: Channel -> Int -> IO ()
 setLoopCount (Channel channel) times =
@@ -246,24 +295,24 @@ setChannelMode (Channel channel) mode =
 
 withChannelPtr :: Channel -> (Ptr Raw.FMODChannel -> IO a) -> IO a
 withChannelPtr (Channel fp) =
-   withForeignPtr fp
+  withForeignPtr fp
 
 finalizeSound :: Sound -> IO ()
 finalizeSound (Sound sound) =
-   finalizeForeignPtr sound
+  finalizeForeignPtr sound
 
 createSoundFromBytes :: System -> BS.ByteString -> IO Sound
 createSoundFromBytes (System sys) bs =
   withForeignPtr sys $ \pSys ->
-  alloca $ \allocSound ->
-    case bs of
-      BS.PS fptr off len ->
-        withForeignPtr fptr $ \base -> do
-          let pData = castPtr (base `plusPtr` off)
-          checkResult "createSoundBytes" =<< Raw.c_fmod_create_sound_from_memory pSys pData (fromIntegral len) allocSound
-          sndPtr <- peek allocSound
-          fp     <- newForeignPtr c_FMOD_Sound_Release sndPtr
-          pure (Sound fp)
+    alloca $ \allocSound ->
+      case bs of
+        BS.PS fptr off len ->
+          withForeignPtr fptr $ \base -> do
+            let pData = castPtr (base `plusPtr` off)
+            checkResult "createSoundBytes" =<< Raw.c_fmod_create_sound_from_memory pSys pData (fromIntegral len) allocSound
+            sndPtr <- peek allocSound
+            fp <- newForeignPtr c_FMOD_Sound_Release sndPtr
+            pure (Sound fp)
 
 foreign import ccall safe "&FMOD_System_Release"
   c_FMOD_System_Release :: FinalizerPtr Raw.FMODSystem

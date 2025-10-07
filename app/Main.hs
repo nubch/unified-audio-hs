@@ -14,10 +14,10 @@ import qualified SDL.Backend as SDL
 import qualified Fmod.Backend as Fmod
 import qualified Data.ByteString as BS
 import Data.Char (GeneralCategory(ModifierLetter))
---import Fmod.Safe (stopChannel, stopGroup, setGroupPanning, setPanning)
+--import Fmod.Safe (stopChannel, stopGroup, setGroupPlacement, setPlacement)
 
 main :: IO ()
-main = runEff $ SDL.runAudio test
+main = runEff $ Fmod.runAudio test
 
 test :: (Audio channel :> es, IOE :> es) => Eff es ()
 test = do
@@ -45,9 +45,9 @@ test = do
   -- removed isGroupStopped checks
 
   vol <- getGroupVolume group
-  pan1 <- getGroupPanning group
-  setGroupPanning group (mkPanning (-1))
-  pan2 <- getGroupPanning group
+  pan1 <- getGroupPlacement group
+  setGroupPlacement group (mkPlacement (-1))
+  pan2 <- getGroupPlacement group
   liftIO $ print vol
   liftIO $ print pan1
   liftIO $ print pan2
@@ -82,11 +82,11 @@ groupTest = do
   addToGroup g1 flim
   wait 3
   write "Pan group left, then right, then center"
-  setGroupPanning g1 (mkPanning (-1))
+  setGroupPlacement g1 (mkPlacement (-1))
   wait 1
-  setGroupPanning g1 (mkPanning 1)
+  setGroupPlacement g1 (mkPlacement 1)
   wait 1
-  setGroupPanning g1 (mkPanning 0)
+  setGroupPlacement g1 (mkPlacement 0)
   wait 1
   write "Set group volume to 0.3 (both attenuated)"
   setGroupVolume g1 (mkVolume 0.3)
@@ -155,14 +155,14 @@ fileTypeTestBytes = do
   --- wav
   write "Playing WAV"
   wav' <- play wav Once
-  pan <- getPanning wav'
+  pan <- getPlacement wav'
   vol <- getVolume wav'
   write $ show pan
   write $ show vol
   ---
-  setPanning wav' (mkPanning 0.7)
+  setPlacement wav' (mkPlacement 0.7)
   setVolume wav' (mkVolume 0.7)
-  pan <- getPanning wav'
+  pan <- getPlacement wav'
   vol <- getVolume wav'
   write $ show pan
   write $ show vol
