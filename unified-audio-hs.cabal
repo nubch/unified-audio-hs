@@ -68,7 +68,7 @@ library fmod-impl
 
     c-sources:        src-impl/Fmod/csrc/fmod_mem.c
 
-    include-dirs:     /home/chris/unified-audio-hs/unified-audio-hs/fmod/inc
+    include-dirs:     **PATH_TO_INC**
     
     visibility:       public
 
@@ -84,9 +84,9 @@ library fmod-impl
     -- Base language which the package is written in.
     default-language: Haskell2010
 
-    extra-lib-dirs:    /home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
+    extra-lib-dirs:    **PATH_TO_x86_64**
     extra-libraries:   fmod
-    ghc-options:       -optl-Wl,-rpath=/home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
+    ghc-options:       -optl-Wl,-rpath=**PATH_TO_x86_64**
 
 
 executable unified-audio-hs
@@ -109,9 +109,9 @@ executable unified-audio-hs
 
     default-language: Haskell2010
 
-    extra-lib-dirs:    /home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
+    extra-lib-dirs:    **PATH_TO_x86_64**
     extra-libraries:   fmod
-    ghc-options:       -optl-Wl,-rpath=/home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
+    ghc-options:       -optl-Wl,-rpath=**PATH_TO_x86_64**
                        -fplugin=Effectful.Plugin
 
 test-suite tp-tests
@@ -130,7 +130,5 @@ test-suite tp-tests
                      , unified-audio-hs:sdl-impl
                      , unified-audio-hs:fmod-impl
 
-  extra-lib-dirs:    /home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
-  extra-libraries:   fmod
-  ghc-options:       -optl-Wl,-rpath=/home/chris/unified-audio-hs/unified-audio-hs/fmod/lib/x86_64/
+  ghc-options:       -optl-Wl,-rpath=**PATH_TO_x86_64**
                       -fplugin=Effectful.Plugin
