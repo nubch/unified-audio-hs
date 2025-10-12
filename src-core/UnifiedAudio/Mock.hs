@@ -6,14 +6,19 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 module UnifiedAudio.Mock
-  ( runAudio,
-  )
 where
 
 import Effectful (Eff, IOE, type (:>))
 import Effectful.Dispatch.Static (evalStaticRep)
 import Data.Kind (Type)
 import UnifiedAudio.Effectful
+    ( AudioBackend(..),
+      Audio,
+      Status(..),
+      Group(GroupId),
+      Source(FromBytes, FromFile),
+      defaultPlacement,
+      defaultVolume )
 
 data MockSound :: Status -> Type where
   LoadedSound :: String -> MockSound Loaded
@@ -84,6 +89,3 @@ mockBackend =
 logMock :: String -> IO ()
 logMock msg = putStrLn $ prefix ++ msg
   where prefix = "[Mock] -> "
-
-runAudio :: (IOE :> es) => Eff (Audio MockSound : es) a -> Eff es a
-runAudio = evalStaticRep (AudioRep mockBackend)

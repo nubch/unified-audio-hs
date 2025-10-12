@@ -22,30 +22,13 @@ write = liftIO . putStrLn
 tp1 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp1 = do
   wav <- loadFile "sounds/exampleFile.wav" Stereo
-  mp3 <- loadFile "sounds/exampleFile.mp3" Stereo
-  ogg <- loadFile "sounds/exampleFile.ogg" Stereo
-  flac <- loadFile "sounds/exampleFile.flac" Stereo
 
   write "Playing WAV"
   wav' <- play wav Once
   awaitFinished wav'
   _ <- stop wav'
 
-  write "Playing MP3"
-  mp3' <- play mp3 Once
-  awaitFinished mp3'
-  _ <- stop mp3'
-
-  write "Playing OGG"
-  ogg' <- play ogg Once
-  awaitFinished ogg'
-  _ <- stop ogg'
-
-  write "Playing FLAC"
-  flac' <- play flac Once
-  awaitFinished flac'
-  stop flac'
-  mapM_ unload [wav, mp3, ogg, flac]
+  void $ unload wav
   
 
 tp2 :: (Audio s :> es, IOE :> es) => Eff es ()
@@ -122,14 +105,14 @@ tp5 = do
 tp6 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp6 = do
   wav <- loadFile "sounds/example.wav" Stereo
-  mp3 <- loadFile "sounds/example.mp3" Stereo
+  wav' <- loadFile "sounds/exampleFile.wav" Stereo
 
-  wav' <- play wav Forever
-  mp3' <- play mp3 Forever
+  ch1 <- play wav Forever
+  ch2 <- play wav' Forever
 
   group1 <- makeGroup
-  addToGroup group1 wav'
-  addToGroup group1 mp3'
+  addToGroup group1 ch1
+  addToGroup group1 ch2
 
   wait 1
   write "Pan group left, then right, then center"
@@ -158,8 +141,8 @@ tp6 = do
   write "Stopping via group handle"
   stopGroup group1
   -- Optional, but ensures individual stops are harmless
-  _ <- stop wav'
-  void $ stop mp3'
+  void $ stop ch1
+  void $ stop ch2
 
 -- Resuming a channel while its group is paused keeps it effectively paused.
 -- After resuming the group, the channel proceeds to finish.
