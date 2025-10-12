@@ -11,8 +11,6 @@
 module Fmod.Backend
   ( runAudio
   , runAudioWith
-  , FmodState
-  , getAliveChannel
   ) where
 
 ----------------------------------------------------------------

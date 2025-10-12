@@ -5,11 +5,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 
-module SDL.Backend
-  ( runAudio
-  , SDLSound
-  , getAliveChannel
-  ) where
+module SDL.Backend (runAudio) where
 
 -- base / std
 import Control.Concurrent.MVar
@@ -76,7 +72,7 @@ runAudio eff =
     let hiFi = Mix.Audio
               { Mix.audioFrequency = 44100
               , Mix.audioFormat    = Mix.FormatS16_Sys
-              , Mix.audioOutput  = Mix.Stereo
+              , Mix.audioOutput    = Mix.Stereo
               }
     Mix.withAudio hiFi 1024 $ do
       env <- initSDLEnv

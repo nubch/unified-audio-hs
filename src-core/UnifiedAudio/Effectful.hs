@@ -398,7 +398,7 @@ awaitFinished channel = do
 
 --- Utilities
 
--- | Construct a clamped 'Placement' from a raw value; input is clamped to [-1,1].
+-- | Construct a clamped 'Placement' from a raw value, input is clamped to [-1,1].
 mkPlacement :: Float -> Placement
 mkPlacement x = Placement (clamp x)
   where
@@ -408,7 +408,7 @@ mkPlacement x = Placement (clamp x)
 unPlacement :: Placement -> Float
 unPlacement (Placement x) = x
 
--- | Construct a clamped 'Volume' from a raw value; input is clamped to [0,1].
+-- | Construct a clamped 'Volume' from a raw value, input is clamped to [0,1].
 mkVolume :: Float -> Volume
 mkVolume x = Volume (clamp x)
   where
