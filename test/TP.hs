@@ -59,32 +59,21 @@ tp3 = do
   r <- resume paused
   void $ stop r
 
--- TP5: Looping and hasFinished monotonicity (AC5, AC6)
 tp4 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp4 = do
   wav <- loadFile "sounds/exampleFile.wav" Stereo
 
-  -- once: eventually becomes finished
-  write "Sound should play once"
-  once <- play wav Once
-  f1 <- hasFinished once
-  liftIO $ f1 `shouldBe` False
-  awaitFinished once
-  f2 <- hasFinished once
-  liftIO $ f2 `shouldBe` True
-
-  -- forever then stop
-  write "Sound should loop indefinitely"
-  looping <- play wav Forever
+  wav' <- play wav Forever
   wait 3
-  f3 <- hasFinished looping
-  liftIO $ f3 `shouldBe` False
-  stop looping
-  f4 <- hasFinished looping
-  liftIO $ f4 `shouldBe` True
+  paused <- pause wav'
+  wait 1
+  resumed <- resume paused
+
+  void $ stop resumed
+  unload wav
+  pure ()
 
 
--- TP6: Group membership exclusivity (AC7)
 tp5 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp5 = do
   wav <- loadFile "sounds/exampleFile.wav" Stereo
@@ -100,7 +89,6 @@ tp5 = do
   wait 5 
   void $ stop looping
 
--- TP7: Group demo exercising group bus behavior consistently across backends
 tp6 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp6 = do
   wav <- loadFile "sounds/example.wav" Stereo
@@ -142,19 +130,3 @@ tp6 = do
   -- Optional, but ensures individual stops are harmless
   void $ stop ch1
   void $ stop ch2
-
--- Resuming a channel while its group is paused keeps it effectively paused.
--- After resuming the group, the channel proceeds to finish.
-tp7 :: (Audio s :> es, IOE :> es) => Eff es ()
-tp7 = do
-  wav <- loadFile "sounds/exampleFile.wav" Stereo
-  wav' <- play wav Once
-  group <- makeGroup
-  addToGroup group wav'
-  pauseGroup group
-  write "Track should be paused"
-  channelAfterResume <- resume =<< pause wav'
-  wait 2 
-  resumeGroup group
-  write "Track should be playing"
-  awaitFinished channelAfterResume

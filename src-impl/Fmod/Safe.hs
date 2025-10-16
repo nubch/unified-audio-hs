@@ -86,7 +86,7 @@ newtype Channel = Channel (ForeignPtr Raw.FMODChannel)
 newtype ChannelGroup = ChannelGroup (ForeignPtr Raw.FMODChannelGroup)
 
 version :: CUInt
-version = 0x00020221
+version = 0x00020307
 
 data LoopMode = LoopOff | LoopNormal
 

@@ -77,7 +77,6 @@ where
 -- Imports
 ----------------------------------------------------------------
 
--- Base / bytes
 import qualified Data.ByteString as BS
 import Data.Kind (Type)
 -- Effectful core
@@ -95,7 +94,7 @@ import Effectful.Dispatch.Static
     getStaticRep,
     unsafeEff_,
   )
--- GHC primitives
+
 import GHC.Exts (Constraint)
 import GHC.TypeLits (ErrorMessage (..), TypeError)
 
@@ -113,8 +112,7 @@ newtype Group (s :: Status -> Type)
   deriving (Show, Eq)
 
 -- | Type-level status of a channel or sound resource.
-data Status = Loaded | Playing | Paused | Stopped | Unloaded
-  deriving (Show, Eq)
+data Status = Loaded | Playing | Paused | Stopped | Unloaded deriving (Show, Eq)
 
 -- | Intended channel layout to use when loading a sound.
 -- Used for identifying between panning or balancing the channel.
@@ -129,8 +127,6 @@ data LoopMode = Once | Forever
 -- Effect / Backend wiring
 ----------------------------------------------------------------
 
---- Effectful
-
 -- | Audio effect keyed by a backend @s@ that carries typed channel states.
 data Audio (s :: Status -> Type) :: Effect
 
@@ -138,6 +134,8 @@ data Audio (s :: Status -> Type) :: Effect
 data AudioBackend (s :: Status -> Type) = AudioBackend
   { -- | Load a sound from a 'Source'.
     loadA :: Source -> SoundType -> IO (s 'Loaded),
+    -- | Unload a loaded sound.
+    unloadA :: s 'Loaded -> IO (s 'Unloaded),
     -- | Start playback with the given loop mode.
     playA :: s 'Loaded -> LoopMode -> IO (s 'Playing),
     -- | Pause a playing channel.
@@ -158,8 +156,6 @@ data AudioBackend (s :: Status -> Type) = AudioBackend
     hasFinishedA :: s 'Playing -> IO Bool,
     -- | Block until a playing channel finishes.
     awaitFinishedA :: s 'Playing -> IO (),
-    -- | Unload a loaded sound.
-    unloadA :: s 'Loaded -> IO (s 'Unloaded),
     -- | Create an empty group.
     makeGroupA :: IO (Group s),
     -- | Add a channel to a group.
@@ -206,7 +202,10 @@ type family Alive (st :: Status) :: Constraint where
           ':<>: 'ShowType other
       )
 
---- Smart Constructors
+
+----------------------------------------------------------------
+-- Loading / Unloading Sounds
+----------------------------------------------------------------
 
 -- | Load a sound from a given 'Source' and declared 'SoundType'.
 -- Returns a handle in the 'Loaded' state managed by the backend.
@@ -230,11 +229,9 @@ unload sound = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.unloadA sound
 
--- | Resume a 'Paused' channel, transitioning it back to 'Playing'.
-resume :: (Audio s :> es) => s Paused -> Eff es (s Playing)
-resume channel = do
-  AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.resumeA channel
+----------------------------------------------------------------
+-- Playing Sounds
+----------------------------------------------------------------
 
 -- | Start playback of a 'Loaded' sound with the given 'LoopMode'.
 -- Transitions the handle from 'Loaded' to 'Playing'.
@@ -260,8 +257,71 @@ playOnGroup sound group loopMode = do
   unsafeEff_ (addGroup group channel)
   pure channel
 
+
 ----------------------------------------------------------------
--- Groups
+-- Channel Operations
+----------------------------------------------------------------
+
+-- | Pause a 'Playing' channel, transitioning it to 'Paused'.
+pause :: (Audio s :> es) => s Playing -> Eff es (s Paused)
+pause channel = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.pauseA channel
+
+-- | Resume a 'Paused' channel, transitioning it back to 'Playing'.
+resume :: (Audio s :> es) => s Paused -> Eff es (s Playing)
+resume channel = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.resumeA channel
+
+-- | Stop an "alive" channel ('Playing' or 'Paused'), transitioning it to 'Stopped'.
+stop :: (Audio s :> es, Alive alive) => s alive -> Eff es (s 'Stopped)
+stop channel = do
+  AudioRep AudioBackend {stopChannelA = stop'} <- getStaticRep
+  unsafeEff_ (stop' channel)
+
+-- | Set the channel 'Volume'.
+setVolume :: (Audio s :> es, Alive alive) => s alive -> Volume -> Eff es ()
+setVolume channel volume = do
+  AudioRep AudioBackend {setVolumeA = setVol} <- getStaticRep
+  unsafeEff_ (setVol channel volume)
+
+-- | Get the current channel 'Volume'.
+getVolume :: (Audio s :> es, Alive alive) => s alive -> Eff es Volume
+getVolume channel = do
+  AudioRep AudioBackend {getVolumeA = getVol} <- getStaticRep
+  unsafeEff_ (getVol channel)
+
+-- | Convenience to mute a channel (sets volume to 0.0).
+mute :: (Audio s :> es, Alive alive) => s alive -> Eff es ()
+mute channel = setVolume channel (mkVolume 0.0)
+
+-- | Set the channel stereo 'Placement'.
+setPlacement :: (Audio s :> es, Alive alive) => s alive -> Placement -> Eff es ()
+setPlacement channel placement = do
+  AudioRep AudioBackend {setPlacementA = setPan} <- getStaticRep
+  unsafeEff_ (setPan channel placement)
+
+-- | Get the current per-channel stereo 'Placement'.
+getPlacement :: (Audio s :> es, Alive alive) => s alive -> Eff es Placement
+getPlacement channel = do
+  AudioRep AudioBackend {getPlacementA = getPan} <- getStaticRep
+  unsafeEff_ (getPan channel)
+
+-- | Check whether a 'Playing' channel has naturally finished playback.
+hasFinished :: (Audio s :> es) => s Playing -> Eff es Bool
+hasFinished channel = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.hasFinishedA channel
+
+-- | Block until the 'Playing' channel finishes playback.
+awaitFinished :: (Audio s :> es) => s Playing -> Eff es ()
+awaitFinished channel = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.awaitFinishedA channel
+
+----------------------------------------------------------------
+-- Group Operations
 ----------------------------------------------------------------
 
 -- | Create an empty 'Group' for batch operations over channels.
@@ -330,70 +390,6 @@ isGroupPaused :: (Audio s :> es) => Group s -> Eff es Bool
 isGroupPaused group = do
   AudioRep AudioBackend {isGroupPausedA = getPaused} <- getStaticRep
   unsafeEff_ (getPaused group)
-
-----------------------------------------------------------------
--- Channel control
-----------------------------------------------------------------
-
--- | Pause a 'Playing' channel, transitioning it to 'Paused'.
-pause :: (Audio s :> es) => s Playing -> Eff es (s Paused)
-pause channel = do
-  AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.pauseA channel
-
--- | Stop an "alive" channel ('Playing' or 'Paused'), transitioning it to 'Stopped'.
-stop :: (Audio s :> es, Alive alive) => s alive -> Eff es (s 'Stopped)
-stop channel = do
-  AudioRep AudioBackend {stopChannelA = stop'} <- getStaticRep
-  unsafeEff_ (stop' channel)
-
-----------------------------------------------------------------
--- Channel parameters
-----------------------------------------------------------------
-
--- | Set the channel 'Volume'.
-setVolume :: (Audio s :> es, Alive alive) => s alive -> Volume -> Eff es ()
-setVolume channel volume = do
-  AudioRep AudioBackend {setVolumeA = setVol} <- getStaticRep
-  unsafeEff_ (setVol channel volume)
-
--- | Get the current channel 'Volume'.
-getVolume :: (Audio s :> es, Alive alive) => s alive -> Eff es Volume
-getVolume channel = do
-  AudioRep AudioBackend {getVolumeA = getVol} <- getStaticRep
-  unsafeEff_ (getVol channel)
-
--- | Convenience to mute a channel (sets volume to 0.0).
-mute :: (Audio s :> es, Alive alive) => s alive -> Eff es ()
-mute channel = setVolume channel (mkVolume 0.0)
-
--- | Set the channel stereo 'Placement'.
-setPlacement :: (Audio s :> es, Alive alive) => s alive -> Placement -> Eff es ()
-setPlacement channel placement = do
-  AudioRep AudioBackend {setPlacementA = setPan} <- getStaticRep
-  unsafeEff_ (setPan channel placement)
-
--- | Get the current per-channel stereo 'Placement'.
-getPlacement :: (Audio s :> es, Alive alive) => s alive -> Eff es Placement
-getPlacement channel = do
-  AudioRep AudioBackend {getPlacementA = getPan} <- getStaticRep
-  unsafeEff_ (getPan channel)
-
-----------------------------------------------------------------
--- Channel status
-----------------------------------------------------------------
-
--- | Check whether a 'Playing' channel has naturally finished playback.
-hasFinished :: (Audio s :> es) => s Playing -> Eff es Bool
-hasFinished channel = do
-  AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.hasFinishedA channel
-
--- | Block until the 'Playing' channel finishes playback.
-awaitFinished :: (Audio s :> es) => s Playing -> Eff es ()
-awaitFinished channel = do
-  AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.awaitFinishedA channel
 
 
 --- Utilities
