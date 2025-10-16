@@ -30,15 +30,11 @@ module UnifiedAudio.Effectful
     Volume,
     Placement,
     -- * Loading / lifecycle
-    load,
     loadFile,
     loadBytes,
     unload,
     -- * Playback
     play,
-    playOnce,
-    playForever,
-    playOnGroup,
     pause,
     resume,
     stop,
@@ -207,20 +203,19 @@ type family Alive (st :: Status) :: Constraint where
 -- Loading / Unloading Sounds
 ----------------------------------------------------------------
 
--- | Load a sound from a given 'Source' and declared 'SoundType'.
+-- | Loads a sound from a 'FilePath'.
 -- Returns a handle in the 'Loaded' state managed by the backend.
-load :: (Audio s :> es) => Source -> SoundType -> Eff es (s Loaded)
-load src stype = do
-  AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.loadA src stype
-
--- | Convenience wrapper around 'load' for loading from a file path.
 loadFile :: (Audio s :> es) => FilePath -> SoundType -> Eff es (s Loaded)
-loadFile fp = load (FromFile fp)
+loadFile fp stype = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.loadA (FromFile fp) stype
 
--- | Convenience wrapper around 'load' for loading from a strict 'ByteString'.
+-- | Loads a sound from a 'ByteString'.
+-- Returns a handle in the 'Loaded' state managed by the backend.
 loadBytes :: (Audio s :> es) => BS.ByteString -> SoundType -> Eff es (s Loaded)
-loadBytes bs = load (FromBytes bs)
+loadBytes bs stype = do
+  AudioRep backend <- getStaticRep
+  unsafeEff_ $ backend.loadA (FromBytes bs) stype
 
 -- | Unload a previously 'Loaded' sound, releasing its resources.
 -- Transitions the handle from 'Loaded' to 'Unloaded'.
@@ -239,24 +234,6 @@ play :: (Audio s :> es) => s Loaded -> LoopMode -> Eff es (s Playing)
 play sound t = do
   AudioRep backend <- getStaticRep
   unsafeEff_ $ backend.playA sound t
-
--- | Play a sound once (alias for @'play' sound 'Once'@).
-playOnce :: (Audio s :> es) => s Loaded -> Eff es (s Playing)
-playOnce sound = play sound Once
-
--- | Play a sound in a loop (alias for @'play' sound 'Forever'@).
-playForever :: (Audio s :> es) => s Loaded -> Eff es (s Playing)
-playForever sound = play sound Forever
-
--- | Play a sound and immediately add the resulting channel to a 'Group'.
--- Returns the newly 'Playing' channel.
-playOnGroup :: (Audio s :> es) => s Loaded -> Group s -> LoopMode -> Eff es (s Playing)
-playOnGroup sound group loopMode = do
-  AudioRep AudioBackend {addToGroupA = addGroup} <- getStaticRep
-  channel <- play sound loopMode
-  unsafeEff_ (addGroup group channel)
-  pure channel
-
 
 ----------------------------------------------------------------
 -- Channel Operations

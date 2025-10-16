@@ -30,6 +30,17 @@ tp1 = do
   
 tp2 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp2 = do
+  wav <- loadFile "sounds/exampleFile.wav" Mono
+  wav' <- play wav Once
+
+  paused <- pause wav'
+  resumed <- resume paused
+
+  void $ stop resumed
+  void $ unload wav
+
+tp3 :: (Audio s :> es, IOE :> es) => Eff es ()
+tp3 = do
   let vols = [-10, -0.1, 0, 0.5, 1, 1.5, 9999]
       pans = [5, -1, 0, 1, -5]
   wav <- loadFile "sounds/exampleFile.wav" Mono
@@ -50,16 +61,6 @@ tp2 = do
   void $ stop wav'
   void $ unload wav
 
-tp3 :: (Audio s :> es, IOE :> es) => Eff es ()
-tp3 = do
-  wav <- loadFile "sounds/exampleFile.wav" Mono
-  wav' <- play wav Once
-
-  paused <- pause wav'
-  resumed <- resume paused
-
-  void $ stop resumed
-  void $ unload wav
 
 tp4 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp4 = do
