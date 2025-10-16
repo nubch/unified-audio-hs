@@ -88,32 +88,6 @@ library fmod-impl
     extra-libraries:   fmod
     ghc-options:       -optl-Wl,-rpath=**PATH_TO_x86_64**
 
-
-executable unified-audio-hs
-    import:           warnings
-
-  
-    main-is:          Main.hs
-
-    build-depends:
-        base,
-        unified-audio-hs,
-        unified-audio-hs:sdl-impl,
-        unified-audio-hs:fmod-impl,
-        effectful,
-        effectful-plugin,
-        effectful-core,
-        bytestring
-
-    hs-source-dirs:   app
-
-    default-language: Haskell2010
-
-    extra-lib-dirs:    **PATH_TO_x86_64**
-    extra-libraries:   fmod
-    ghc-options:       -optl-Wl,-rpath=**PATH_TO_x86_64**
-                       -fplugin=Effectful.Plugin
-
 test-suite tp-tests
   type:                exitcode-stdio-1.0
   default-language:    GHC2021
