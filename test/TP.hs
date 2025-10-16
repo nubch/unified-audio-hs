@@ -20,16 +20,14 @@ write = liftIO . putStrLn
 
 tp1 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp1 = do
-  wav <- loadFile "sounds/exampleFile.wav" Stereo
-
-  write "Playing WAV"
+  wav <- loadFile "sounds/exampleFile.wav" Mono
   wav' <- play wav Once
-  awaitFinished wav'
-  _ <- stop wav'
 
+  awaitFinished wav'
+
+  void $ stop wav'
   void $ unload wav
   
-
 tp2 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp2 = do
   let vols = [-10, -0.1, 0, 0.5, 1, 1.5, 9999]
@@ -50,34 +48,38 @@ tp2 = do
         ) pans
 
   void $ stop wav'
+  void $ unload wav
 
 tp3 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp3 = do
-  l <- loadFile "sounds/exampleFile.wav" Stereo
-  p <- play l Once
-  paused <- pause p
-  r <- resume paused
-  void $ stop r
+  wav <- loadFile "sounds/exampleFile.wav" Mono
+  wav' <- play wav Once
+
+  paused <- pause wav'
+  resumed <- resume paused
+
+  void $ stop resumed
+  void $ unload wav
 
 tp4 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp4 = do
-  wav <- loadFile "sounds/exampleFile.wav" Stereo
-
+  wav <- loadFile "sounds/exampleFile.wav" Mono
   wav' <- play wav Forever
+
   wait 3
   paused <- pause wav'
   wait 1
   resumed <- resume paused
 
   void $ stop resumed
-  unload wav
-  pure ()
+  void $ unload wav
 
 
 tp5 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp5 = do
-  wav <- loadFile "sounds/exampleFile.wav" Stereo
+  wav <- loadFile "sounds/exampleFile.wav" Mono
   looping <- play wav Forever
+
   g1 <- makeGroup
   g2 <- makeGroup
   addToGroup g1 looping
@@ -88,11 +90,12 @@ tp5 = do
   write "Sound should still be playing"
   wait 5 
   void $ stop looping
+  void $ unload wav
 
 tp6 :: (Audio s :> es, IOE :> es) => Eff es ()
 tp6 = do
-  wav <- loadFile "sounds/example.wav" Stereo
-  wav' <- loadFile "sounds/exampleFile.wav" Stereo
+  wav <- loadFile "sounds/exampleFile.wav" Mono
+  wav' <- loadFile "sounds/exampleFile2.wav" Mono
 
   ch1 <- play wav Forever
   ch2 <- play wav' Forever
@@ -127,6 +130,6 @@ tp6 = do
   write "Cleanup: stop both"
   write "Stopping via group handle"
   stopGroup group1
-  -- Optional, but ensures individual stops are harmless
-  void $ stop ch1
-  void $ stop ch2
+
+  void $ unload wav
+  void $ unload wav'
