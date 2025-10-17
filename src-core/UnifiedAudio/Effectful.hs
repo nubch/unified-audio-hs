@@ -231,9 +231,9 @@ unload sound = do
 -- | Start playback of a 'Loaded' sound with the given 'LoopMode'.
 -- Transitions the handle from 'Loaded' to 'Playing'.
 play :: (Audio s :> es) => s Loaded -> LoopMode -> Eff es (s Playing)
-play sound t = do
+play sound loopMode = do
   AudioRep backend <- getStaticRep
-  unsafeEff_ $ backend.playA sound t
+  unsafeEff_ $ backend.playA sound loopMode
 
 ----------------------------------------------------------------
 -- Channel Operations
